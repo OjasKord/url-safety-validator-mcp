@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.OjasKord/url-safety-validator-mcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "AI URL safety validator: SAFE/SUSPICIOUS/DANGEROUS verdict, trust score, threat intel.",
   "title": "URL Safety Validator",
   "websiteUrl": "https://kordagencies.com",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "url-safety-validator-mcp",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         {
@@ -26,6 +26,12 @@
         {
           "name": "GOOGLE_WEB_RISK_API_KEY",
           "description": "Google Web Risk API key (commercial). Server degrades gracefully without it.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "GOOGLE_SAFE_BROWSING_API_KEY",
+          "description": "Google Safe Browsing API key (free tier available).",
           "isRequired": false,
           "isSecret": true
         }
