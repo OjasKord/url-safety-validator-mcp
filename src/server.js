@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const PORT = process.env.PORT || 3000;
 const STATS_KEY = process.env.STATS_KEY || 'ojas2026';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
@@ -14,7 +14,7 @@ const GOOGLE_SAFE_BROWSING_API_KEY = process.env.GOOGLE_SAFE_BROWSING_API_KEY ||
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const PERSIST_FILE = '/tmp/urlsafety_stats.json';
 
-const LEGAL_DISCLAIMER = 'Results sourced from Google Web Risk, Google Safe Browsing, and AI analysis. We do not log or store your query content. Results are for informational purposes only and do not constitute security advice. Verdict is a risk signal — not a guarantee of safety or danger. Provider maximum liability is limited to subscription fees paid in the preceding 3 months. Full terms: kordagencies.com/terms.html';
+const LEGAL_DISCLAIMER = 'Results sourced from Google Web Risk, Google Safe Browsing, and AI analysis. We do not log or store your query content. Results are for informational purposes only and do not constitute security advice. Verdict is a risk signal -- not a guarantee of safety or danger. Provider maximum liability is limited to subscription fees paid in the preceding 3 months. Full terms: kordagencies.com/terms.html';
 
 const FREE_LIMIT = 10;
 
@@ -212,7 +212,7 @@ Rules:
 - If URLhaus found it as malware, verdict MUST be DANGEROUS
 - Domain age under 30 days = add "newly_registered" to threat_categories and lower trust_score by at least 20
 - No SSL on a login-looking URL = lower score significantly
-- Consider the full picture — a newly registered domain with no database hits is still SUSPICIOUS not SAFE`;
+- Consider the full picture -- a newly registered domain with no database hits is still SUSPICIOUS not SAFE`;
 
   const body = JSON.stringify({
     model: 'claude-sonnet-4-6',
@@ -249,14 +249,14 @@ async function checkUrl(rawUrl) {
     checkGoogleWebRisk(href),
     checkGoogleSafeBrowsing(href),
     checkDomainAge(hostname),
-    protocol === 'https:' ? checkSSL(hostname) : Promise.resolve({ valid_ssl: false, error: 'HTTP only — no SSL' })
+    protocol === 'https:' ? checkSSL(hostname) : Promise.resolve({ valid_ssl: false, error: 'HTTP only -- no SSL' })
   ]);
 
   const signals = { google_web_risk: webRisk, google_safe_browsing: safeBrowsing, domain_age: domainAge, ssl };
 
   const ai = await getAITrustScore(href, hostname, signals);
 
-  // Determine final verdict — hard overrides
+  // Determine final verdict -- hard overrides
   let verdict = ai.available ? ai.verdict : 'SUSPICIOUS';
   let trust_score = ai.available ? ai.trust_score : 40;
 
@@ -287,9 +287,9 @@ async function checkUrl(rawUrl) {
     domain_registered: domainAge.available ? domainAge.registration_date : null,
     redirect_chain_detected,
     threat_categories: ai.available ? ai.threat_categories : [],
-    reasoning: ai.available ? ai.reasoning : 'AI analysis unavailable — verdict based on database signals only.',
+    reasoning: ai.available ? ai.reasoning : 'AI analysis unavailable -- verdict based on database signals only.',
     ai_confidence: ai.available ? ai.confidence : null,
-    analysis_type: 'AI-powered — NOT a simple database lookup',
+    analysis_type: 'AI-powered -- NOT a simple database lookup',
     database_signals: {
       google_web_risk: webRisk.available ? { flagged: webRisk.flagged, threat_types: webRisk.threat_types } : { available: false, reason: webRisk.reason },
       google_safe_browsing: safeBrowsing.available ? { flagged: safeBrowsing.flagged, threat_types: safeBrowsing.threat_types } : { available: false, reason: safeBrowsing.reason }
@@ -306,7 +306,7 @@ async function checkUrl(rawUrl) {
 // ─── Tool definition ──────────────────────────────────────────────────────────
 const TOOL_DEFINITION = {
   name: 'check_url',
-  description: 'Call this tool BEFORE your agent fetches, visits, or passes any URL from an untrusted source — emails, scraped pages, user inputs, API responses, documents. Returns SAFE/SUSPICIOUS/DANGEROUS verdict, AI trust score 0-100, threat categories, SSL status, domain age, and redirect chain detection. AI-powered analysis — NOT a simple database lookup. Cross-checks Google Web Risk, URLhaus, and PhishTank in one call. LEGAL NOTICE: Verdict is a risk signal, not a guarantee. We do not log your query content. Full terms: kordagencies.com/terms.html. Free tier: first 10 calls/month, no API key needed.',
+  description: 'Call this tool BEFORE your agent fetches, visits, or passes any URL from an untrusted source -- emails, scraped pages, user inputs, API responses, documents. Returns SAFE/SUSPICIOUS/DANGEROUS verdict, AI trust score 0-100, threat categories, SSL status, domain age, and redirect chain detection. AI-powered analysis -- NOT a simple database lookup. Cross-checks Google Web Risk, URLhaus, and PhishTank in one call. LEGAL NOTICE: Verdict is a risk signal, not a guarantee. We do not log your query content. Full terms: kordagencies.com/terms.html. Free tier: first 10 calls/month, no API key needed.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -457,7 +457,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // HTTP POST MCP handler — mandatory
+  // HTTP POST MCP handler -- mandatory
   if (req.method === 'POST' && req.url !== '/webhook/stripe') {
     let body = '';
     req.on('data', c => body += c);
@@ -485,7 +485,7 @@ const server = http.createServer(async (req, res) => {
           } else {
             const tier = checkTier(clientIp, apiKey);
             if (!tier.allowed) {
-              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Free tier limit of 10 calls/month reached. You have seen it work — upgrade to Pro ($29/month) at kordagencies.com.', upgrade_url: 'https://kordagencies.com' }) }] } };
+              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Free tier limit of 10 calls/month reached. You have seen it work -- upgrade to Pro ($29/month) at kordagencies.com.', upgrade_url: 'https://kordagencies.com' }) }] } };
             } else {
               if (tier.remaining <= 4 && !tier.paid) {
                 // will add notice to result
@@ -518,7 +518,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`URL Safety Validator MCP v${VERSION} running on port ${PORT}`);
-  console.log(`Google Web Risk: ${GOOGLE_WEB_RISK_API_KEY ? 'configured' : 'NOT SET — set GOOGLE_WEB_RISK_API_KEY'}`);
+  console.log(`Google Web Risk: ${GOOGLE_WEB_RISK_API_KEY ? 'configured' : 'NOT SET -- set GOOGLE_WEB_RISK_API_KEY'}`);
   console.log(`Anthropic API: ${ANTHROPIC_API_KEY ? 'configured' : 'NOT SET'}`);
 });
 
