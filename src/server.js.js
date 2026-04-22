@@ -5,15 +5,16 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const PORT = process.env.PORT || 3000;
 const STATS_KEY = process.env.STATS_KEY || 'ojas2026';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const GOOGLE_WEB_RISK_API_KEY = process.env.GOOGLE_WEB_RISK_API_KEY || '';
+const GOOGLE_SAFE_BROWSING_API_KEY = process.env.GOOGLE_SAFE_BROWSING_API_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const PERSIST_FILE = '/tmp/urlsafety_stats.json';
 
-const LEGAL_DISCLAIMER = 'Results sourced from Google Web Risk, URLhaus, PhishTank, and AI analysis. We do not log or store your query content. Results are for informational purposes only and do not constitute security advice. Verdict is a risk signal — not a guarantee of safety or danger. Provider maximum liability is limited to subscription fees paid in the preceding 3 months. Full terms: kordagencies.com/terms.html';
+const LEGAL_DISCLAIMER = 'Results sourced from Google Web Risk, Google Safe Browsing, and AI analysis. We do not log or store your query content. Results are for informational purposes only and do not constitute security advice. Verdict is a risk signal — not a guarantee of safety or danger. Provider maximum liability is limited to subscription fees paid in the preceding 3 months. Full terms: kordagencies.com/terms.html';
 
 const FREE_LIMIT = 10;
 
@@ -126,39 +127,29 @@ async function checkGoogleWebRisk(url) {
   }
 }
 
-// ─── URLhaus ──────────────────────────────────────────────────────────────────
-async function checkURLhaus(url) {
-  const r = await httpsPost('urlhaus-api.abuse.ch', '/v1/url/', `url=${encodeURIComponent(url)}`, { 'Content-Type': 'application/x-www-form-urlencoded' }, 6000);
-  if (!r.ok) return { available: false, reason: `URLhaus error: ${r.status}` };
+// ─── Google Safe Browsing ────────────────────────────────────────────────────
+async function checkGoogleSafeBrowsing(url) {
+  if (!GOOGLE_SAFE_BROWSING_API_KEY) return { available: false, reason: 'GOOGLE_SAFE_BROWSING_API_KEY not set' };
+  const body = JSON.stringify({
+    client: { clientId: 'kord-url-safety-mcp', clientVersion: VERSION },
+    threatInfo: {
+      threatTypes: ['MALWARE', 'SOCIAL_ENGINEERING', 'UNWANTED_SOFTWARE', 'POTENTIALLY_HARMFUL_APPLICATION'],
+      platformTypes: ['ANY_PLATFORM'],
+      threatEntryTypes: ['URL'],
+      threatEntries: [{ url }]
+    }
+  });
+  const path = `/v4/threatMatches:find?key=${GOOGLE_SAFE_BROWSING_API_KEY}`;
+  const r = await httpsPost('safebrowsing.googleapis.com', path, body, { 'Content-Type': 'application/json' }, 6000);
+  if (!r.ok) return { available: false, reason: `Google Safe Browsing error: ${r.status}` };
   try {
     const parsed = JSON.parse(r.body);
+    const matches = parsed.matches || [];
     return {
       available: true,
-      found: parsed.query_status === 'is_malware' || parsed.query_status === 'no_results' ? parsed.query_status !== 'no_results' : false,
-      query_status: parsed.query_status,
-      threat: parsed.threat || null,
-      url_status: parsed.url_status || null,
-      tags: parsed.tags || []
-    };
-  } catch(e) {
-    return { available: false, reason: 'Parse error' };
-  }
-}
-
-// ─── PhishTank ────────────────────────────────────────────────────────────────
-async function checkPhishTank(url) {
-  const body = `url=${encodeURIComponent(url)}&format=json`;
-  const r = await httpsPost('checkurl.phishtank.com', '/checkurl/', body, { 'Content-Type': 'application/x-www-form-urlencoded' }, 6000);
-  if (!r.ok) return { available: false, reason: `PhishTank error: ${r.status}` };
-  try {
-    const parsed = JSON.parse(r.body);
-    const results = parsed.results || {};
-    return {
-      available: true,
-      in_database: results.in_database === true,
-      valid: results.valid === true,
-      verified: results.verified === true,
-      phish_detail_page: results.phish_detail_page || null
+      flagged: matches.length > 0,
+      threat_types: matches.map(m => m.threatType),
+      platform_types: matches.map(m => m.platformType)
     };
   } catch(e) {
     return { available: false, reason: 'Parse error' };
@@ -254,15 +245,14 @@ async function checkUrl(rawUrl) {
 
   const { href, hostname, protocol } = parsed;
 
-  const [webRisk, urlhaus, phishtank, domainAge, ssl] = await Promise.all([
+  const [webRisk, safeBrowsing, domainAge, ssl] = await Promise.all([
     checkGoogleWebRisk(href),
-    checkURLhaus(href),
-    checkPhishTank(href),
+    checkGoogleSafeBrowsing(href),
     checkDomainAge(hostname),
     protocol === 'https:' ? checkSSL(hostname) : Promise.resolve({ valid_ssl: false, error: 'HTTP only — no SSL' })
   ]);
 
-  const signals = { google_web_risk: webRisk, urlhaus, phishtank, domain_age: domainAge, ssl };
+  const signals = { google_web_risk: webRisk, google_safe_browsing: safeBrowsing, domain_age: domainAge, ssl };
 
   const ai = await getAITrustScore(href, hostname, signals);
 
@@ -271,8 +261,7 @@ async function checkUrl(rawUrl) {
   let trust_score = ai.available ? ai.trust_score : 40;
 
   if (webRisk.available && webRisk.flagged) { verdict = 'DANGEROUS'; trust_score = Math.min(trust_score, 5); }
-  if (phishtank.available && phishtank.valid && phishtank.in_database) { verdict = 'DANGEROUS'; trust_score = Math.min(trust_score, 5); }
-  if (urlhaus.available && urlhaus.found) { verdict = 'DANGEROUS'; trust_score = Math.min(trust_score, 5); }
+  if (safeBrowsing.available && safeBrowsing.flagged) { verdict = 'DANGEROUS'; trust_score = Math.min(trust_score, 5); }
 
   // Redirect chain flag
   let redirect_chain_detected = false;
@@ -303,8 +292,7 @@ async function checkUrl(rawUrl) {
     analysis_type: 'AI-powered — NOT a simple database lookup',
     database_signals: {
       google_web_risk: webRisk.available ? { flagged: webRisk.flagged, threat_types: webRisk.threat_types } : { available: false, reason: webRisk.reason },
-      urlhaus: urlhaus.available ? { flagged: urlhaus.found, status: urlhaus.query_status, threat: urlhaus.threat } : { available: false, reason: urlhaus.reason },
-      phishtank: phishtank.available ? { flagged: phishtank.valid && phishtank.in_database, verified: phishtank.verified } : { available: false, reason: phishtank.reason }
+      google_safe_browsing: safeBrowsing.available ? { flagged: safeBrowsing.flagged, threat_types: safeBrowsing.threat_types } : { available: false, reason: safeBrowsing.reason }
     },
     checked_at: nowISO(),
     source_url: 'https://kordagencies.com',
@@ -411,17 +399,18 @@ const server = http.createServer(async (req, res) => {
       r.setTimeout(5000, () => { r.destroy(); resolve({ ok: false, status: 0, error: 'timeout' }); });
       r.end();
     });
-    const [wr, uh, pt, rdap, anthropic] = await Promise.all([
+    const [wr, sb, rdap, anthropic] = await Promise.all([
       GOOGLE_WEB_RISK_API_KEY
         ? depCheck('webrisk.googleapis.com', `/v1/uris:search?threatTypes=MALWARE&uri=https%3A%2F%2Fexample.com&key=${GOOGLE_WEB_RISK_API_KEY}`)
         : Promise.resolve({ ok: false, status: 0, error: 'key not set' }),
-      depCheck('urlhaus-api.abuse.ch', '/v1/'),
-      depCheck('checkurl.phishtank.com', '/'),
+      GOOGLE_SAFE_BROWSING_API_KEY
+        ? depCheck('safebrowsing.googleapis.com', `/v4/threatMatches:find?key=${GOOGLE_SAFE_BROWSING_API_KEY}`)
+        : Promise.resolve({ ok: false, status: 0, error: 'key not set' }),
       depCheck('rdap.org', '/domain/example.com'),
       depCheck('api.anthropic.com', '/v1/models', ANTHROPIC_API_KEY ? { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' } : {})
     ]);
     res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ server: 'url-safety-validator-mcp', checked_at: nowISO(), dependencies: { google_web_risk: wr, urlhaus: uh, phishtank: pt, rdap: rdap, anthropic: anthropic } }));
+    res.end(JSON.stringify({ server: 'url-safety-validator-mcp', checked_at: nowISO(), dependencies: { google_web_risk: wr, google_safe_browsing: sb, rdap: rdap, anthropic: anthropic } }));
     return;
   }
 
