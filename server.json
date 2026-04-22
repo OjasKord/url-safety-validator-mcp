@@ -1,0 +1,41 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.OjasKord/url-safety-validator-mcp",
+  "version": "1.0.0",
+  "description": "AI URL safety validator: SAFE/SUSPICIOUS/DANGEROUS verdict, trust score, threat intel.",
+  "title": "URL Safety Validator",
+  "websiteUrl": "https://kordagencies.com",
+  "repository": {
+    "url": "https://github.com/OjasKord/url-safety-validator-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "url-safety-validator-mcp",
+      "version": "1.0.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "description": "Anthropic API key for AI trust scoring",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "GOOGLE_WEB_RISK_API_KEY",
+          "description": "Google Web Risk API key (commercial). Server degrades gracefully without it.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://url-safety-validator-mcp-production.up.railway.app"
+    }
+  ]
+}

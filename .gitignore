@@ -1,0 +1,7 @@
+node_modules/
+.env
+*.log
+fix.js
+patch.js
+*_patch.js
+*_fix.js

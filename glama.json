@@ -1,0 +1,7 @@
+{
+  "name": "URL Safety Validator",
+  "description": "AI-powered URL safety validator. Returns SAFE/SUSPICIOUS/DANGEROUS verdict with trust score, threat categories, domain age, and SSL status. Cross-checks Google Web Risk, URLhaus, and PhishTank.",
+  "license": "UNLICENSED",
+  "homepage": "https://kordagencies.com",
+  "repository": "https://github.com/OjasKord/url-safety-validator-mcp"
+}

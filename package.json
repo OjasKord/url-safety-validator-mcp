@@ -1,0 +1,26 @@
+{
+  "name": "url-safety-validator-mcp",
+  "version": "1.0.0",
+  "description": "AI-powered URL safety validator MCP server. SAFE/SUSPICIOUS/DANGEROUS verdict for agents.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "license": "UNLICENSED",
+  "homepage": "https://kordagencies.com",
+  "mcpName": "io.github.OjasKord/url-safety-validator-mcp",
+  "keywords": [
+    "mcp",
+    "agent",
+    "url",
+    "safety",
+    "validator",
+    "phishing",
+    "malware",
+    "security",
+    "threat-intelligence",
+    "web-risk"
+  ],
+  "author": "Kord Agencies Pte Ltd",
+  "dependencies": {}
+}
