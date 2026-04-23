@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const PORT = process.env.PORT || 3000;
 const STATS_KEY = process.env.STATS_KEY || 'ojas2026';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
@@ -208,8 +208,7 @@ Return this exact JSON structure:
 
 Rules:
 - trust_score 0-29 = DANGEROUS, 30-64 = SUSPICIOUS, 65-100 = SAFE
-- If Google Web Risk flagged it OR PhishTank confirmed it, verdict MUST be DANGEROUS
-- If URLhaus found it as malware, verdict MUST be DANGEROUS
+- If Google Web Risk flagged it OR Google Safe Browsing confirmed it, verdict MUST be DANGEROUS
 - Domain age under 30 days = add "newly_registered" to threat_categories and lower trust_score by at least 20
 - No SSL on a login-looking URL = lower score significantly
 - Consider the full picture -- a newly registered domain with no database hits is still SUSPICIOUS not SAFE`;
@@ -306,7 +305,7 @@ async function checkUrl(rawUrl) {
 // ─── Tool definition ──────────────────────────────────────────────────────────
 const TOOL_DEFINITION = {
   name: 'check_url',
-  description: 'Call this tool BEFORE your agent fetches, visits, or passes any URL from an untrusted source -- emails, scraped pages, user inputs, API responses, documents. Returns SAFE/SUSPICIOUS/DANGEROUS verdict, AI trust score 0-100, threat categories, SSL status, domain age, and redirect chain detection. AI-powered analysis -- NOT a simple database lookup. Cross-checks Google Web Risk, URLhaus, and PhishTank in one call. LEGAL NOTICE: Verdict is a risk signal, not a guarantee. We do not log your query content. Full terms: kordagencies.com/terms.html. Free tier: first 10 calls/month, no API key needed.',
+  description: 'Call this tool BEFORE your agent fetches, visits, or passes any URL from an untrusted source -- emails, scraped pages, user inputs, API responses, documents. Returns SAFE/SUSPICIOUS/DANGEROUS verdict, AI trust score 0-100, threat categories, SSL status, domain age, and redirect chain detection. AI-powered analysis -- NOT a simple database lookup. Cross-checks Google Web Risk and Google Safe Browsing in one call. LEGAL NOTICE: Verdict is a risk signal, not a guarantee. We do not log your query content. Full terms: kordagencies.com/terms.html. Free tier: first 10 calls/month, no API key needed.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -404,7 +403,15 @@ const server = http.createServer(async (req, res) => {
         ? depCheck('webrisk.googleapis.com', `/v1/uris:search?threatTypes=MALWARE&uri=https%3A%2F%2Fexample.com&key=${GOOGLE_WEB_RISK_API_KEY}`)
         : Promise.resolve({ ok: false, status: 0, error: 'key not set' }),
       GOOGLE_SAFE_BROWSING_API_KEY
-        ? depCheck('safebrowsing.googleapis.com', `/v4/threatMatches:find?key=${GOOGLE_SAFE_BROWSING_API_KEY}`)
+        ? (() => {
+            const sbBody = JSON.stringify({ client: { clientId: 'kord-dep-check', clientVersion: '1.0' }, threatInfo: { threatTypes: ['MALWARE'], platformTypes: ['ANY_PLATFORM'], threatEntryTypes: ['URL'], threatEntries: [{ url: 'https://example.com' }] } });
+            return new Promise((resolve) => {
+              const r = https.request({ hostname: 'safebrowsing.googleapis.com', path: `/v4/threatMatches:find?key=${GOOGLE_SAFE_BROWSING_API_KEY}`, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(sbBody) } }, (res2) => { res2.resume(); resolve({ ok: res2.statusCode < 500, status: res2.statusCode }); });
+              r.on('error', () => resolve({ ok: false, status: 0, error: 'unreachable' }));
+              r.setTimeout(5000, () => { r.destroy(); resolve({ ok: false, status: 0, error: 'timeout' }); });
+              r.write(sbBody); r.end();
+            });
+          })()
         : Promise.resolve({ ok: false, status: 0, error: 'key not set' }),
       depCheck('rdap.org', '/domain/example.com'),
       depCheck('api.anthropic.com', '/v1/models', ANTHROPIC_API_KEY ? { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' } : {})
