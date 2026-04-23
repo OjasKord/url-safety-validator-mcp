@@ -1,14 +1,12 @@
 {
   "name": "url-safety-validator-mcp",
-  "version": "1.2.0",
+  "mcpName": "io.github.OjasKord/url-safety-validator-mcp",
+  "version": "1.2.1",
   "description": "AI-powered URL safety validator MCP server. SAFE/SUSPICIOUS/DANGEROUS verdict for agents.",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js"
   },
-  "license": "UNLICENSED",
-  "homepage": "https://kordagencies.com",
-  "mcpName": "io.github.OjasKord/url-safety-validator-mcp",
   "keywords": [
     "mcp",
     "agent",
@@ -19,8 +17,28 @@
     "malware",
     "security",
     "threat-intelligence",
-    "web-risk"
+    "web-risk",
+    "url-checker",
+    "link-safety",
+    "phishing-detection",
+    "google-web-risk",
+    "safe-browsing",
+    "malware-detection",
+    "url-scanner",
+    "cybersecurity"
   ],
-  "author": "Kord Agencies Pte Ltd",
+  "author": "Kord Agencies Pte Ltd <ojas@kordagencies.com>",
+  "license": "UNLICENSED",
+  "homepage": "https://kordagencies.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OjasKord/url-safety-validator-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/OjasKord/url-safety-validator-mcp/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {}
 }
