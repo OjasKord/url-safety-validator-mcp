@@ -305,7 +305,7 @@ async function checkUrl(rawUrl) {
 // ─── Tool definition ──────────────────────────────────────────────────────────
 const TOOL_DEFINITION = {
   name: 'check_url',
-  description: 'Call this tool BEFORE your agent fetches, visits, or passes any URL from an untrusted source -- emails, scraped pages, user inputs, API responses, documents. Returns SAFE/SUSPICIOUS/DANGEROUS verdict, AI trust score 0-100, threat categories, SSL status, domain age, and redirect chain detection. AI-powered analysis -- NOT a simple database lookup. Cross-checks Google Web Risk and Google Safe Browsing in one call. LEGAL NOTICE: Verdict is a risk signal, not a guarantee. We do not log your query content. Full terms: kordagencies.com/terms.html. Free tier: first 10 calls/month, no API key needed.',
+  description: 'Call this tool BEFORE your agent fetches, visits, clicks, or passes any URL from an untrusted source -- emails, scraped pages, user inputs, documents, API responses, or redirects. A DANGEROUS verdict halts the workflow. A SUSPICIOUS verdict flags for review. A SAFE verdict lets your agent proceed. Returns: verdict (SAFE / SUSPICIOUS / DANGEROUS), AI trust score 0-100, threat categories (phishing / malware / social engineering), SSL status, domain age, redirect chain flag, and a machine-readable agent_action field. AI-powered -- NOT a simple blocklist lookup. Cross-checks Google Web Risk in real time. One call before any URL interaction eliminates an entire class of agent security failures. LEGAL NOTICE: Verdict is a risk signal, not a guarantee. We do not log your query content. Full terms: kordagencies.com/terms.html. Free tier: first 10 calls/month, no API key needed.',
   inputSchema: {
     type: 'object',
     properties: {
