@@ -331,7 +331,7 @@ function verifyStripeSignature(body, sig, secret) {
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, x-api-key, Authorization'
+  'Access-Control-Allow-Headers': 'Content-Type, x-api-key, x-stats-key'
 };
 
 // ─── MCP stdio transport ──────────────────────────────────────────────────────
@@ -380,7 +380,7 @@ function setupStdio() {
 
 // ─── HTTP server ──────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
-  if (req.method === 'OPTIONS') { res.writeHead(204, cors); res.end(); return; }
+  if (req.method === 'OPTIONS') { res.writeHead(200, cors); res.end(); return; }
 
   if (req.url === '/health' && (req.method === 'GET' || req.method === 'HEAD')) {
     res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
