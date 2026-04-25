@@ -5,13 +5,14 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.1';
+const VERSION = '1.2.2';
 const PORT = process.env.PORT || 3000;
 const STATS_KEY = process.env.STATS_KEY || 'ojas2026';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const GOOGLE_WEB_RISK_API_KEY = process.env.GOOGLE_WEB_RISK_API_KEY || '';
 const GOOGLE_SAFE_BROWSING_API_KEY = process.env.GOOGLE_SAFE_BROWSING_API_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const PERSIST_FILE = '/tmp/urlsafety_stats.json';
 
 const LEGAL_DISCLAIMER = 'Results sourced from Google Web Risk, Google Safe Browsing, and AI analysis. We do not log or store your query content. Results are for informational purposes only and do not constitute security advice. Verdict is a risk signal -- not a guarantee of safety or danger. Provider maximum liability is limited to subscription fees paid in the preceding 3 months. Full terms: kordagencies.com/terms.html';
@@ -21,6 +22,7 @@ const FREE_LIMIT = 10;
 // ─── Stats ────────────────────────────────────────────────────────────────────
 let stats = { free_tier_calls_by_ip: {}, total_checks: 0, safe_count: 0, suspicious_count: 0, dangerous_count: 0, started_at: new Date().toISOString() };
 const apiKeys = new Map();
+const usageLog = [];
 
 function loadStats() {
   try {
@@ -39,6 +41,26 @@ function saveStats() {
 loadStats();
 
 function nowISO() { return new Date().toISOString(); }
+
+// ─── Email ────────────────────────────────────────────────────────────────────
+async function sendEmail(to, subject, html) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ from: 'URL Safety Validator <ojas@kordagencies.com>', to: [to], subject, html });
+    const req = https.request({
+      hostname: 'api.resend.com', path: '/emails', method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + RESEND_API_KEY, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+    }, res => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve({ status: res.statusCode, body: d })); });
+    req.on('error', e => resolve({ error: e.message }));
+    req.write(body); req.end();
+  });
+}
+
+async function sendApiKeyEmail(email, apiKey, plan) {
+  const planLabel = plan === 'enterprise' ? 'Enterprise' : 'Pro';
+  const limit = plan === 'enterprise' ? 'Unlimited' : '500';
+  const html = '<!DOCTYPE html><html><body style="font-family:monospace;background:#080A0F;color:#E8EDF5;padding:40px;max-width:600px;margin:0 auto"><div style="border:1px solid rgba(0,229,195,0.3);border-radius:8px;padding:32px"><div style="color:#00E5C3;font-size:13px;letter-spacing:0.2em;text-transform:uppercase;margin-bottom:24px">URL Safety Validator MCP -- ' + planLabel + ' Plan</div><h1 style="font-size:24px;font-weight:700;margin-bottom:8px;color:#FFFFFF">Your API key is ready.</h1><div style="background:#141B24;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:20px;margin-bottom:24px"><div style="color:#5A6478;font-size:11px;text-transform:uppercase;margin-bottom:8px">Your API Key</div><div style="color:#00E5C3;font-size:14px;word-break:break-all">' + apiKey + '</div></div><div style="background:#141B24;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:20px;margin-bottom:24px"><div style="color:#5A6478;font-size:11px;text-transform:uppercase;margin-bottom:8px">MCP Config</div><div style="color:#86EFAC;font-size:12px">{"url-safety-validator":{"url":"https://url-safety-validator-mcp-production.up.railway.app","headers":{"x-api-key":"' + apiKey + '"}}}</div></div><div style="background:#141B24;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:20px;margin-bottom:24px"><div style="color:#E8EDF5;font-size:13px">Plan: ' + planLabel + ' | URL checks: ' + limit + '/month</div></div><div style="background:#0D1219;border-radius:6px;padding:16px;margin-bottom:24px;font-size:11px;color:#5A6478;line-height:1.7">Results are informational only. Verdict is a risk signal not a safety guarantee. Liability capped at 3 months fees. Full terms: kordagencies.com/terms.html</div><p style="color:#5A6478;font-size:12px">Questions? ojas@kordagencies.com</p></div></body></html>';
+  return sendEmail(email, 'Your URL Safety Validator MCP ' + planLabel + ' API Key', html);
+}
 
 // ─── Free/Paid Tier ───────────────────────────────────────────────────────────
 function getMonthKey() {
@@ -239,7 +261,13 @@ Rules:
 async function checkUrl(rawUrl) {
   const parsed = parseUrl(rawUrl);
   if (!parsed.valid) {
-    return { error: 'Invalid URL format. Provide a full URL like https://example.com', url: rawUrl };
+    return {
+      error: 'Invalid URL format. Provide a full URL like https://example.com',
+      url: rawUrl,
+      agent_action: 'Fix the URL format before retrying. Ensure it starts with https:// or http://',
+      likely_cause: 'URL missing protocol prefix or contains invalid characters',
+      _disclaimer: LEGAL_DISCLAIMER
+    };
   }
 
   const { href, hostname, protocol } = parsed;
@@ -280,6 +308,7 @@ async function checkUrl(rawUrl) {
     url: href,
     hostname,
     verdict,
+    agent_action: verdict === 'DANGEROUS' ? 'BLOCK' : verdict === 'SUSPICIOUS' ? 'FLAG_AND_PROCEED' : 'ALLOW',
     trust_score,
     ssl_valid: ssl.valid_ssl,
     domain_age_days: domainAge.available ? domainAge.domain_age_days : null,
@@ -294,7 +323,7 @@ async function checkUrl(rawUrl) {
       google_safe_browsing: safeBrowsing.available ? { flagged: safeBrowsing.flagged, threat_types: safeBrowsing.threat_types } : { available: false, reason: safeBrowsing.reason }
     },
     checked_at: nowISO(),
-    source_url: 'https://kordagencies.com',
+    source_url: 'webrisk.googleapis.com',
     _disclaimer: LEGAL_DISCLAIMER
   };
 
@@ -305,7 +334,7 @@ async function checkUrl(rawUrl) {
 // ─── Tool definition ──────────────────────────────────────────────────────────
 const TOOL_DEFINITION = {
   name: 'check_url',
-  description: 'Call this tool BEFORE your agent fetches, visits, clicks, or passes any URL from an untrusted source -- emails, scraped pages, user inputs, documents, API responses, or redirects. A DANGEROUS verdict halts the workflow. A SUSPICIOUS verdict flags for review. A SAFE verdict lets your agent proceed. Returns: verdict (SAFE / SUSPICIOUS / DANGEROUS), AI trust score 0-100, threat categories (phishing / malware / social engineering), SSL status, domain age, redirect chain flag, and a machine-readable agent_action field. AI-powered -- NOT a simple blocklist lookup. Cross-checks Google Web Risk in real time. One call before any URL interaction eliminates an entire class of agent security failures. LEGAL NOTICE: Verdict is a risk signal, not a guarantee. We do not log your query content. Full terms: kordagencies.com/terms.html. Free tier: first 10 calls/month, no API key needed.',
+  description: 'Call this tool BEFORE your agent fetches, visits, clicks, or passes any URL from an untrusted source -- emails, scraped pages, user inputs, documents, API responses, or redirects. A DANGEROUS verdict halts the workflow. A SUSPICIOUS verdict flags for review. A SAFE verdict lets your agent proceed. Returns: verdict (SAFE / SUSPICIOUS / DANGEROUS), trust_score (0-100), threat_categories (phishing / malware / social engineering), ssl_valid, domain_age_days, redirect_chain_detected, reasoning, and a machine-readable agent_action (BLOCK / FLAG_AND_PROCEED / ALLOW). AI-powered -- NOT a simple blocklist lookup. Cross-checks Google Web Risk (webrisk.googleapis.com) and Google Safe Browsing in real time. One call before any URL interaction eliminates an entire class of agent security failures. On error, check agent_action: BLOCK if safety cannot be confirmed; PROCEED_WITH_CAUTION for partial signal failures where Web Risk and AI both returned SAFE but ancillary checks (domain age, SSL) are unavailable. Typical response: 3-8s (four parallel external checks plus AI scoring). LEGAL NOTICE: Verdict is a risk signal, not a guarantee. We do not log your query content. Full terms: kordagencies.com/terms.html. Free tier: first 10 calls/month, no API key needed.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -350,7 +379,7 @@ function setupStdio() {
           const request = JSON.parse(line);
           let response;
           if (request.method === 'initialize') {
-            response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION } } };
+            response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Real-time URL safety checking for AI agents. Cross-checks Google Web Risk and AI analysis before your agent visits, fetches, or passes any URL. One call eliminates an entire class of agent security failures. 1 tool. Free tier: 10 calls/month.' } } };
           } else if (request.method === 'notifications/initialized') {
             continue;
           } else if (request.method === 'tools/list') {
@@ -427,8 +456,10 @@ const server = http.createServer(async (req, res) => {
     const ipMap = stats.free_tier_calls_by_ip || {};
     const free_tier_unique_ips = Object.keys(ipMap).length;
     const free_tier_total_calls = Object.values(ipMap).reduce((t, m) => t + Object.values(m).reduce((a,b) => a+b, 0), 0);
+    const toolCounts = {};
+    usageLog.forEach(e => { toolCounts[e.tool] = (toolCounts[e.tool] || 0) + 1; });
     res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ version: VERSION, total_checks: stats.total_checks, safe_count: stats.safe_count, suspicious_count: stats.suspicious_count, dangerous_count: stats.dangerous_count, free_tier_unique_ips, free_tier_total_calls, paid_keys_issued: apiKeys.size, started_at: stats.started_at }));
+    res.end(JSON.stringify({ version: VERSION, total_checks: stats.total_checks, safe_count: stats.safe_count, suspicious_count: stats.suspicious_count, dangerous_count: stats.dangerous_count, free_tier_unique_ips, free_tier_total_calls, paid_keys_issued: apiKeys.size, started_at: stats.started_at, tool_usage: toolCounts, recent_calls: usageLog.slice(-20).reverse() }));
     return;
   }
 
@@ -451,10 +482,13 @@ const server = http.createServer(async (req, res) => {
         if (event.type === 'checkout.session.completed') {
           const session = event.data.object;
           const key = 'usv_' + crypto.randomBytes(16).toString('hex');
-          const email = session.customer_details?.email || 'unknown';
+          const email = session.customer_details?.email || session.customer_email || 'unknown';
           apiKeys.set(key, { email, created_at: nowISO(), plan: 'pro' });
           saveStats();
-          console.log(`New paid key issued: ${email}`);
+          console.log('[stripe] API key issued to: ' + email);
+          if (email && email !== 'unknown') {
+            sendApiKeyEmail(email, key, 'pro').catch(err => console.error('[stripe] Email send failed:', err.message));
+          }
         }
         res.writeHead(200, cors); res.end(JSON.stringify({ received: true }));
       } catch(e) {
@@ -476,7 +510,7 @@ const server = http.createServer(async (req, res) => {
         let response;
 
         if (request.method === 'initialize') {
-          response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION } } };
+          response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Real-time URL safety checking for AI agents. Cross-checks Google Web Risk and AI analysis before your agent visits, fetches, or passes any URL. One call eliminates an entire class of agent security failures. 1 tool. Free tier: 10 calls/month.' } } };
         } else if (request.method === 'notifications/initialized') {
           res.writeHead(204, cors); res.end(); return;
         } else if (request.method === 'tools/list') {
@@ -488,19 +522,17 @@ const server = http.createServer(async (req, res) => {
         } else if (request.method === 'tools/call' && request.params?.name === 'check_url') {
           const url = request.params?.arguments?.url;
           if (!url) {
-            response = { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: 'url parameter required' } };
+            response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'url parameter required', agent_action: 'Retry with a url parameter value. Example: {"url":"https://example.com"}', likely_cause: 'Missing required url argument in tool call', _disclaimer: LEGAL_DISCLAIMER }) }] } };
           } else {
             const tier = checkTier(clientIp, apiKey);
             if (!tier.allowed) {
-              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Free tier limit of 10 calls/month reached. You have seen it work -- upgrade to Pro ($29/month) at kordagencies.com.', upgrade_url: 'https://kordagencies.com' }) }] } };
+              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Free tier limit of 10 calls/month reached', agent_action: 'Inform user that free quota is exhausted. Upgrade available at kordagencies.com.', upgrade_url: 'https://kordagencies.com', _disclaimer: LEGAL_DISCLAIMER }) }] } };
             } else {
-              if (tier.remaining <= 4 && !tier.paid) {
-                // will add notice to result
-              }
               recordCall(clientIp, apiKey);
               const result = await checkUrl(url);
+              usageLog.push({ tool: 'check_url', ip: clientIp, tier: tier.paid ? 'paid' : 'free', timestamp: nowISO() });
               if (tier.remaining <= 4 && !tier.paid) {
-                result._notice = `Warning: ${tier.remaining - 1} free calls remaining this month. Upgrade to Pro at kordagencies.com to avoid interruption.`;
+                result._notice = 'Warning: ' + (tier.remaining - 1) + ' free calls remaining this month. Upgrade to Pro at kordagencies.com to avoid interruption.';
               }
               response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] } };
             }

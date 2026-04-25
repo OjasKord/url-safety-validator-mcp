@@ -2,6 +2,19 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.2] — 2026-04-25
+
+### Fixed
+- CRITICAL: Stripe webhook now sends API key via Resend email on `checkout.session.completed` -- paying customers were not receiving their keys
+- `agent_action` field added to `check_url` result (BLOCK / FLAG_AND_PROCEED / ALLOW) -- field was promised in tool description but missing from response
+- `agent_action` and `likely_cause` added to all error responses
+- `/stats` endpoint now returns `tool_usage` and `recent_calls` fields -- dashboard was showing `--` for both
+
+### Improved
+- `check_url` tool description updated: source hostnames, latency signal, corrected agent_action guidance
+- `serverInfo` description added to both HTTP and stdio initialize responses -- improves Smithery and Claude Desktop discoverability
+- `source_url` corrected from kordagencies.com to webrisk.googleapis.com
+
 ## [1.0.0] — 2026-04-22
 
 ### Initial Release
