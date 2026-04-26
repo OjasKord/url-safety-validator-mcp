@@ -1,3 +1,4 @@
+description: "URL safety checker for AI agents. Detects phishing and malware before your agent visits any link."
 startCommand:
   type: http
   url: https://url-safety-validator-mcp-production.up.railway.app
@@ -10,3 +11,42 @@ startCommand:
         x-from:
           header: "x-api-key"
     required: []
+systemPrompt: |
+  URL Safety Validator MCP is a link verification layer for AI agents.
+
+  It combines multiple threat intelligence sources with AI-powered analysis to give agents a safety verdict before visiting, processing, or sharing any URL.
+
+  ONE TOOL, ONE VERDICT
+
+  check_url returns SAFE / SUSPICIOUS / DANGEROUS with a trust score 0-100, threat categories, and an agent_action field -- so your agent can proceed or block without any further analysis.
+
+  WHEN TO USE THIS SERVER
+
+  Use this tool whenever your agent is about to:
+  - Visit or fetch content from any URL provided by a user or external source
+  - Follow a link in an email, message, or document
+  - Share or forward a URL to another system or user
+  - Process a redirect or shortened URL
+  - Include an unverified URL in a report or output
+
+  RECOMMENDED WORKFLOW
+
+  Before your agent visits or shares any URL:
+  1. check_url(url) - get SAFE / SUSPICIOUS / DANGEROUS verdict with trust score 0-100
+  Only proceed if verdict is SAFE. Block immediately if DANGEROUS. Flag for review if SUSPICIOUS.
+
+  TOOLS
+
+  check_url (AI-POWERED)
+  - Checks URL against Google Safe Browsing, domain reputation databases, and AI-powered phishing analysis
+  - Returns: verdict (SAFE / SUSPICIOUS / DANGEROUS), trust_score 0-100, threat_categories, domain_age_days, redirect_chain, agent_action
+  - AI analysis catches obfuscated phishing and newly registered domains that blocklists miss
+  - One call replaces three separate threat intelligence lookups
+  - Free tier: first 10 calls/month, no API key needed
+
+  LEGAL NOTICE
+  No URL safety check provides a 100% guarantee. Results are for informational purposes only. We do not log your query content. Full terms: kordagencies.com/terms.html
+
+  FREE TIER
+  10 calls/month with no API key.
+  Upgrade at kordagencies.com -- Pro $49/month, Enterprise $199/month.
