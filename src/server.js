@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.3';
+const VERSION = '1.2.4';
 const PORT = process.env.PORT || 3000;
 const STATS_KEY = process.env.STATS_KEY || 'ojas2026';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
@@ -327,6 +327,7 @@ async function checkUrl(rawUrl) {
     _disclaimer: LEGAL_DISCLAIMER
   };
 
+  result.token_count = Math.ceil(JSON.stringify(result).length / 4);
   saveStats();
   return result;
 }
@@ -417,6 +418,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === '/ready' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const checks = { anthropic: !!ANTHROPIC_API_KEY, google_web_risk: !!GOOGLE_WEB_RISK_API_KEY };
+    const ready = checks.anthropic && checks.google_web_risk;
+    res.writeHead(ready ? 200 : 503, { ...cors, 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: ready ? 'ready' : 'not_ready', version: VERSION, checks }));
+    return;
+  }
+
   if (req.url === '/deps' && req.method === 'GET') {
     const depCheck = (hostname, path, extraHeaders) => new Promise((resolve) => {
       const r = https.request({ hostname, path, method: 'GET', headers: { 'User-Agent': 'MCP-HealthCheck/1.0', ...(extraHeaders||{}) } }, (res2) => {
@@ -465,7 +474,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.url === '/.well-known/mcp/server-card.json' && req.method === 'GET') {
     res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ name: 'URL Safety Validator', version: VERSION, description: 'AI-powered URL safety checker for agents. SAFE/SUSPICIOUS/DANGEROUS verdict with trust score.', url: 'https://url-safety-validator-mcp-production.up.railway.app' }));
+    res.end(JSON.stringify({ name: 'URL Safety Validator', version: VERSION, description: 'AI-powered URL safety checker for agents. SAFE/SUSPICIOUS/DANGEROUS verdict with trust score.', url: 'https://url-safety-validator-mcp-production.up.railway.app', transport: 'streamable-http', homepage: 'https://kordagencies.com', token_footprint_min: 411, token_footprint_max: 434, token_footprint_avg: 422, idempotent_tools: ['check_url'], circuit_breaker: false, health_endpoint: '/health', ready_endpoint: '/ready' }));
     return;
   }
 

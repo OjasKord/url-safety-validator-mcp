@@ -2,6 +2,13 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.4] — 2026-04-26
+
+### Added
+- `token_count` field on all tool responses — lets orchestrator budget ledgers track token cost per call
+- `/ready` endpoint — returns 200 when `ANTHROPIC_API_KEY` and `GOOGLE_WEB_RISK_API_KEY` are present, 503 otherwise; enables Railway health-gate and orchestrator pre-flight checks
+- Phase 4 enhanced error objects: `category`, `retryable`, `retry_after_ms`, `fallback_tool`, `trace_id` on all error returns
+
 ## [1.2.3] — 2026-04-26
 
 ### Improved
