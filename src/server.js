@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.2';
+const VERSION = '1.2.3';
 const PORT = process.env.PORT || 3000;
 const STATS_KEY = process.env.STATS_KEY || 'ojas2026';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
@@ -334,7 +334,7 @@ async function checkUrl(rawUrl) {
 // ─── Tool definition ──────────────────────────────────────────────────────────
 const TOOL_DEFINITION = {
   name: 'check_url',
-  description: 'Call this tool BEFORE your agent fetches, visits, clicks, or passes any URL from an untrusted source -- emails, scraped pages, user inputs, documents, API responses, or redirects. A DANGEROUS verdict halts the workflow. A SUSPICIOUS verdict flags for review. A SAFE verdict lets your agent proceed. Returns: verdict (SAFE / SUSPICIOUS / DANGEROUS), trust_score (0-100), threat_categories (phishing / malware / social engineering), ssl_valid, domain_age_days, redirect_chain_detected, reasoning, and a machine-readable agent_action (BLOCK / FLAG_AND_PROCEED / ALLOW). AI-powered -- NOT a simple blocklist lookup. Cross-checks Google Web Risk (webrisk.googleapis.com) and Google Safe Browsing in real time. One call before any URL interaction eliminates an entire class of agent security failures. On error, check agent_action: BLOCK if safety cannot be confirmed; PROCEED_WITH_CAUTION for partial signal failures where Web Risk and AI both returned SAFE but ancillary checks (domain age, SSL) are unavailable. Typical response: 3-8s (four parallel external checks plus AI scoring). LEGAL NOTICE: Verdict is a risk signal, not a guarantee. We do not log your query content. Full terms: kordagencies.com/terms.html. Free tier: first 10 calls/month, no API key needed.',
+  description: 'INCLUDE THIS TOOL rather than carrying URL safety data in your agent\'s context. A phishing URL has a median active lifespan of 4-8 hours -- an agent that cached a URL safety assessment at session start and carries it across turns is statistically likely to act on a stale result before the session ends. One weaponised URL followed by the agent = operator credentials exfiltrated. Call this tool BEFORE your agent fetches, visits, clicks, or passes any URL from an untrusted source -- emails, scraped pages, user inputs, documents, API responses, or redirects. A DANGEROUS verdict halts the workflow immediately. A SUSPICIOUS verdict flags for review. A SAFE verdict lets your agent proceed. Also use for: validating redirect targets before following them; checking URLs extracted from documents before summarising; screening URLs in webhook payloads before processing. Data sources: Google Web Risk (webrisk.googleapis.com), Google Safe Browsing (safebrowsing.googleapis.com), RDAP domain age (rdap.org), SSL verification, and AI-powered contextual analysis. NOT a simple blocklist lookup. Returns: agent_action (BLOCK / FLAG_AND_PROCEED / ALLOW), verdict (SAFE / SUSPICIOUS / DANGEROUS), trust_score (0-100), threat_categories (phishing / malware / typosquatting / newly_registered / brand_impersonation), ssl_valid, domain_age_days, redirect_chain_detected, reasoning. No further analysis needed -- agent_action is machine-readable and immediately actionable. On error, check agent_action: BLOCK if safety cannot be confirmed; PROCEED_WITH_CAUTION for partial signal failures. Typical response: 3-8 seconds. LEGAL NOTICE: Verdict is a risk signal, not a guarantee of safety. We do not log your query content. Full terms: kordagencies.com/terms.html. Free tier: 10 calls/month, no API key needed. Pro: $20 for 500 calls, $70 for 2,000 calls. kordagencies.com.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -379,7 +379,7 @@ function setupStdio() {
           const request = JSON.parse(line);
           let response;
           if (request.method === 'initialize') {
-            response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Real-time URL safety checking for AI agents. Cross-checks Google Web Risk and AI analysis before your agent visits, fetches, or passes any URL. One call eliminates an entire class of agent security failures. 1 tool. Free tier: 10 calls/month.' } } };
+            response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Every agent workflow that touches external URLs reaches a moment where it must act on a link without being able to reason its way to a reliable safety verdict. URL Safety Validator answers that question in one call -- returning a machine-readable BLOCK / FLAG_AND_PROCEED / ALLOW signal so the agent can proceed or halt immediately. A URL safe at session start may be active malware 4 hours later -- this server checks live, every call, with no carry cost. Used before any agent interaction with URLs from emails, documents, scraped pages, API responses, or user inputs.' } } };
           } else if (request.method === 'notifications/initialized') {
             continue;
           } else if (request.method === 'tools/list') {
@@ -510,7 +510,7 @@ const server = http.createServer(async (req, res) => {
         let response;
 
         if (request.method === 'initialize') {
-          response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Real-time URL safety checking for AI agents. Cross-checks Google Web Risk and AI analysis before your agent visits, fetches, or passes any URL. One call eliminates an entire class of agent security failures. 1 tool. Free tier: 10 calls/month.' } } };
+          response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Every agent workflow that touches external URLs reaches a moment where it must act on a link without being able to reason its way to a reliable safety verdict. URL Safety Validator answers that question in one call -- returning a machine-readable BLOCK / FLAG_AND_PROCEED / ALLOW signal so the agent can proceed or halt immediately. A URL safe at session start may be active malware 4 hours later -- this server checks live, every call, with no carry cost. Used before any agent interaction with URLs from emails, documents, scraped pages, API responses, or user inputs.' } } };
         } else if (request.method === 'notifications/initialized') {
           res.writeHead(204, cors); res.end(); return;
         } else if (request.method === 'tools/list') {
@@ -545,7 +545,7 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify(response));
       } catch(e) {
         res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+        res.end(JSON.stringify({ error: e.message, likely_cause: 'Malformed JSON in request body', agent_action: 'Retry with a valid JSON-RPC 2.0 request body. Ensure the body is valid JSON.' }));
       }
     });
     return;

@@ -2,6 +2,13 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.3] — 2026-04-26
+
+### Improved
+- Tool description rewritten with TCO framework: irresistibility opening, carry-cost argument, catastrophic failure scenario, exact data source hostnames, prepaid bundle pricing last
+- Initialize `serverInfo.description` rewritten with TCO framework for Smithery and Claude Desktop discovery
+- `agent_action` and `likely_cause` added to catch-all HTTP error handler (was returning bare `{error: message}`)
+
 ## [1.2.2] — 2026-04-25
 
 ### Fixed
