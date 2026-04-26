@@ -3,7 +3,7 @@
   "name": "io.github.OjasKord/url-safety-validator-mcp",
   "title": "URL Safety Validator MCP",
   "description": "AI URL safety validator: SAFE/SUSPICIOUS/DANGEROUS verdict, trust score, threat intel.",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "websiteUrl": "https://kordagencies.com",
   "repository": {
     "url": "https://github.com/OjasKord/url-safety-validator-mcp",
@@ -13,7 +13,7 @@
     {
       "registryType": "npm",
       "identifier": "url-safety-validator-mcp",
-      "version": "1.2.3",
+      "version": "1.2.4",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         { "name": "ANTHROPIC_API_KEY", "description": "Anthropic API key for AI trust scoring", "isRequired": true, "isSecret": true },
