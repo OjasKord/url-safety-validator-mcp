@@ -2,6 +2,12 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.5] — 2026-04-28
+
+### Changed
+- Payment links updated to prepaid bundle URLs: 500 calls for $20 -- calls never expire
+- Free tier limit errors now direct agents to prepaid bundle purchase link directly
+
 ## [1.2.4] — 2026-04-26
 
 ### Added

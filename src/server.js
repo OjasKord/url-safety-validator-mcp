@@ -5,7 +5,9 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.4';
+const VERSION = '1.2.5';
+const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
+const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const PORT = process.env.PORT || 3000;
 const STATS_KEY = process.env.STATS_KEY || 'ojas2026';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
@@ -535,13 +537,13 @@ const server = http.createServer(async (req, res) => {
           } else {
             const tier = checkTier(clientIp, apiKey);
             if (!tier.allowed) {
-              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Free tier limit of 10 calls/month reached', agent_action: 'Inform user that free quota is exhausted. Upgrade available at kordagencies.com.', upgrade_url: 'https://kordagencies.com', _disclaimer: LEGAL_DISCLAIMER }) }] } };
+              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Free tier limit reached. Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.', agent_action: 'Inform user that free quota is exhausted. Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.', upgrade_url: PRO_UPGRADE_URL, _disclaimer: LEGAL_DISCLAIMER }) }] } };
             } else {
               recordCall(clientIp, apiKey);
               const result = await checkUrl(url);
               usageLog.push({ tool: 'check_url', ip: clientIp, tier: tier.paid ? 'paid' : 'free', timestamp: nowISO() });
               if (tier.remaining <= 4 && !tier.paid) {
-                result._notice = 'Warning: ' + (tier.remaining - 1) + ' free calls remaining this month. Upgrade to Pro at kordagencies.com to avoid interruption.';
+                result._notice = 'Warning: ' + (tier.remaining - 1) + ' free calls remaining this month. Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.';
               }
               response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] } };
             }
