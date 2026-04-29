@@ -1,3 +1,5 @@
+[![smithery badge](https://smithery.ai/badge/OjasKord/url-safety-validator-mcp)](https://smithery.ai/servers/OjasKord/url-safety-validator-mcp)
+
 # URL Safety Validator MCP
 
 **Stop your agent from fetching a dangerous URL before it's too late.**
