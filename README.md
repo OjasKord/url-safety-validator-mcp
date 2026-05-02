@@ -56,8 +56,8 @@ If the verdict is DANGEROUS — halt. If SUSPICIOUS — flag for review. If SAFE
 | Tier | Calls | Price |
 |---|---|---|
 | Free | 10/month | No API key needed |
-| Pro | Unlimited | $29/month — kordagencies.com |
-| Enterprise | Unlimited + SLA | $99/month — kordagencies.com |
+| Starter | 500-call bundle | $20 |
+| Pro | 2,000-call bundle | $70 |
 
 ---
 
