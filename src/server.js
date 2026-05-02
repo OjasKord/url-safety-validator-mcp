@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.5';
+const VERSION = '1.2.6';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const PORT = process.env.PORT || 3000;
@@ -266,8 +266,13 @@ async function checkUrl(rawUrl) {
     return {
       error: 'Invalid URL format. Provide a full URL like https://example.com',
       url: rawUrl,
+      likely_cause: 'required field missing or malformed URL provided',
+      retryable: false,
+      retry_after_ms: null,
+      fallback_tool: null,
       agent_action: 'Fix the URL format before retrying. Ensure it starts with https:// or http://',
-      likely_cause: 'URL missing protocol prefix or contains invalid characters',
+      category: 'invalid_input',
+      trace_id: crypto.randomBytes(8).toString('hex'),
       _disclaimer: LEGAL_DISCLAIMER
     };
   }
@@ -337,6 +342,7 @@ async function checkUrl(rawUrl) {
 // ─── Tool definition ──────────────────────────────────────────────────────────
 const TOOL_DEFINITION = {
   name: 'check_url',
+  idempotent: true,
   description: 'INCLUDE THIS TOOL rather than carrying URL safety data in your agent\'s context. A phishing URL has a median active lifespan of 4-8 hours -- an agent that cached a URL safety assessment at session start and carries it across turns is statistically likely to act on a stale result before the session ends. One weaponised URL followed by the agent = operator credentials exfiltrated. Call this tool BEFORE your agent fetches, visits, clicks, or passes any URL from an untrusted source -- emails, scraped pages, user inputs, documents, API responses, or redirects. A DANGEROUS verdict halts the workflow immediately. A SUSPICIOUS verdict flags for review. A SAFE verdict lets your agent proceed. Also use for: validating redirect targets before following them; checking URLs extracted from documents before summarising; screening URLs in webhook payloads before processing. Data sources: Google Web Risk (webrisk.googleapis.com), Google Safe Browsing (safebrowsing.googleapis.com), RDAP domain age (rdap.org), SSL verification, and AI-powered contextual analysis. NOT a simple blocklist lookup. Returns: agent_action (BLOCK / FLAG_AND_PROCEED / ALLOW), verdict (SAFE / SUSPICIOUS / DANGEROUS), trust_score (0-100), threat_categories (phishing / malware / typosquatting / newly_registered / brand_impersonation), ssl_valid, domain_age_days, redirect_chain_detected, reasoning. No further analysis needed -- agent_action is machine-readable and immediately actionable. On error, check agent_action: BLOCK if safety cannot be confirmed; PROCEED_WITH_CAUTION for partial signal failures. Typical response: 3-8 seconds. LEGAL NOTICE: Verdict is a risk signal, not a guarantee of safety. We do not log your query content. Full terms: kordagencies.com/terms.html. Free tier: 10 calls/month, no API key needed. Pro: $20 for 500 calls, $70 for 2,000 calls. kordagencies.com.',
   inputSchema: {
     type: 'object',
@@ -533,11 +539,11 @@ const server = http.createServer(async (req, res) => {
         } else if (request.method === 'tools/call' && request.params?.name === 'check_url') {
           const url = request.params?.arguments?.url;
           if (!url) {
-            response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'url parameter required', agent_action: 'Retry with a url parameter value. Example: {"url":"https://example.com"}', likely_cause: 'Missing required url argument in tool call', _disclaimer: LEGAL_DISCLAIMER }) }] } };
+            response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'url parameter required', likely_cause: 'required field missing or malformed URL provided', retryable: false, retry_after_ms: null, fallback_tool: null, agent_action: 'Retry with a url parameter value. Example: {"url":"https://example.com"}', category: 'invalid_input', trace_id: crypto.randomBytes(8).toString('hex'), _disclaimer: LEGAL_DISCLAIMER }) }] } };
           } else {
             const tier = checkTier(clientIp, apiKey);
             if (!tier.allowed) {
-              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Free tier limit reached. Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.', agent_action: 'Inform user that free quota is exhausted. Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.', upgrade_url: PRO_UPGRADE_URL, _disclaimer: LEGAL_DISCLAIMER }) }] } };
+              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Free tier limit reached. Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.', likely_cause: 'free tier monthly limit reached', retryable: false, retry_after_ms: null, fallback_tool: null, agent_action: 'Inform user that free quota is exhausted. Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.', category: 'rate_limit', trace_id: crypto.randomBytes(8).toString('hex'), upgrade_url: PRO_UPGRADE_URL, _disclaimer: LEGAL_DISCLAIMER }) }] } };
             } else {
               recordCall(clientIp, apiKey);
               const result = await checkUrl(url);
@@ -556,7 +562,7 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify(response));
       } catch(e) {
         res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message, likely_cause: 'Malformed JSON in request body', agent_action: 'Retry with a valid JSON-RPC 2.0 request body. Ensure the body is valid JSON.' }));
+        res.end(JSON.stringify({ error: e.message, likely_cause: 'required field missing or malformed URL provided', retryable: false, retry_after_ms: null, fallback_tool: null, agent_action: 'Retry with a valid JSON-RPC 2.0 request body. Ensure the body is valid JSON.', category: 'invalid_input', trace_id: crypto.randomBytes(8).toString('hex') }));
       }
     });
     return;
