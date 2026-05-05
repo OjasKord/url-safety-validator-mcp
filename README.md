@@ -93,6 +93,51 @@ npm install -g url-safety-validator-mcp
 
 ---
 
+## Harness Integration
+
+### Claude Code / Claude Desktop (.mcp.json)
+```json
+{
+  "mcpServers": {
+    "url-safety-validator": {
+      "type": "http",
+      "url": "https://url-safety-validator-mcp-production.up.railway.app"
+    }
+  }
+}
+```
+
+### LangChain (Python)
+```python
+from langchain_mcp_adapters.client import MultiServerMCPClient
+client = MultiServerMCPClient({
+    "url-safety-validator": {
+        "url": "https://url-safety-validator-mcp-production.up.railway.app",
+        "transport": "http"
+    }
+})
+tools = await client.get_tools()
+```
+
+### OpenAI Agents SDK (Python)
+```python
+from agents import Agent, HostedMCPTool
+agent = Agent(
+    name="Assistant",
+    tools=[HostedMCPTool(tool_config={
+        "type": "mcp",
+        "server_label": "url-safety-validator",
+        "server_url": "https://url-safety-validator-mcp-production.up.railway.app",
+        "require_approval": "never"
+    })]
+)
+```
+
+### LangGraph
+Same as LangChain above — langchain-mcp-adapters works with LangGraph natively.
+
+---
+
 ## Example Response
 
 ```json
