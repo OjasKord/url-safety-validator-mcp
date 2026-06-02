@@ -2,6 +2,11 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.9] — 2026-06-02
+
+### Fixed
+- fix: IP extraction fixed for Cloudflare proxy headers — free tier gate now enforces correctly
+
 ## [1.2.5] — 2026-04-28
 
 ### Changed

@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.7';
+const VERSION = '1.2.8';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const PORT = process.env.PORT || 3000;
@@ -25,18 +25,23 @@ const FREE_LIMIT = 10;
 let stats = { free_tier_calls_by_ip: {}, total_checks: 0, safe_count: 0, suspicious_count: 0, dangerous_count: 0, started_at: new Date().toISOString() };
 const apiKeys = new Map();
 const usageLog = [];
+const toolUsageCounts = {};
+const trialExtensions = new Map();
+const TRIAL_EXTENSION_CALLS = 10;
 
 function loadStats() {
   try {
     const data = JSON.parse(fs.readFileSync(PERSIST_FILE, 'utf8'));
     stats = data.stats || stats;
     if (data.api_keys) data.api_keys.forEach(([k, v]) => apiKeys.set(k, v));
+    if (data.toolUsageCounts) Object.assign(toolUsageCounts, data.toolUsageCounts);
+    if (data.trialExtensions) data.trialExtensions.forEach(([k, v]) => trialExtensions.set(k, v));
   } catch(e) { /* fresh start */ }
 }
 
 function saveStats() {
   try {
-    fs.writeFileSync(PERSIST_FILE, JSON.stringify({ stats, api_keys: [...apiKeys.entries()] }));
+    fs.writeFileSync(PERSIST_FILE, JSON.stringify({ stats, api_keys: [...apiKeys.entries()], toolUsageCounts, trialExtensions: [...trialExtensions.entries()] }));
   } catch(e) {}
 }
 
@@ -473,16 +478,40 @@ const server = http.createServer(async (req, res) => {
     const ipMap = stats.free_tier_calls_by_ip || {};
     const free_tier_unique_ips = Object.keys(ipMap).length;
     const free_tier_total_calls = Object.values(ipMap).reduce((t, m) => t + Object.values(m).reduce((a,b) => a+b, 0), 0);
-    const toolCounts = {};
-    usageLog.forEach(e => { toolCounts[e.tool] = (toolCounts[e.tool] || 0) + 1; });
     res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ version: VERSION, total_checks: stats.total_checks, safe_count: stats.safe_count, suspicious_count: stats.suspicious_count, dangerous_count: stats.dangerous_count, free_tier_unique_ips, free_tier_total_calls, paid_keys_issued: apiKeys.size, started_at: stats.started_at, tool_usage: toolCounts, recent_calls: usageLog.slice(-20).reverse() }));
+    res.end(JSON.stringify({ version: VERSION, total_checks: stats.total_checks, safe_count: stats.safe_count, suspicious_count: stats.suspicious_count, dangerous_count: stats.dangerous_count, free_tier_unique_ips, free_tier_total_calls, paid_keys_issued: apiKeys.size, started_at: stats.started_at, tool_usage: toolUsageCounts, recent_calls: usageLog.slice(-20).reverse(), trial_extensions_granted: trialExtensions.size }));
     return;
   }
 
   if (req.url === '/.well-known/mcp/server-card.json' && req.method === 'GET') {
     res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ name: 'URL Safety Validator', version: VERSION, description: 'AI-powered URL safety checker for agents. SAFE/SUSPICIOUS/DANGEROUS verdict with trust score.', url: 'https://url-safety-validator-mcp-production.up.railway.app', transport: 'streamable-http', homepage: 'https://kordagencies.com', token_footprint_min: 411, token_footprint_max: 434, token_footprint_avg: 422, idempotent_tools: ['check_url'], circuit_breaker: false, health_endpoint: '/health', ready_endpoint: '/ready' }));
+    return;
+  }
+
+  if (req.url === '/trial-extension' && req.method === 'POST') {
+    let body = ''; req.on('data', c => body += c);
+    req.on('end', async () => {
+      try {
+        const { name, email, use_case } = JSON.parse(body);
+        if (!name || !email) { res.writeHead(400, { ...cors, 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'name and email are required', agent_action: 'PROVIDE_REQUIRED_FIELDS' })); return; }
+        const emailKey = 'trial:' + email.toLowerCase().trim();
+        if (trialExtensions.has(emailKey)) { res.writeHead(409, { ...cors, 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Trial extension already granted for this email.', upgrade_url: PRO_UPGRADE_URL, agent_action: 'INFORM_USER_TRIAL_ALREADY_USED' })); return; }
+        const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
+        const month = getMonthKey();
+        if (!stats.free_tier_calls_by_ip[clientIp]) stats.free_tier_calls_by_ip[clientIp] = {};
+        const current = stats.free_tier_calls_by_ip[clientIp][month] || 0;
+        stats.free_tier_calls_by_ip[clientIp][month] = Math.max(0, current - TRIAL_EXTENSION_CALLS);
+        trialExtensions.set(emailKey, { name, email, use_case: use_case || '', ip: clientIp, granted_at: nowISO() });
+        saveStats();
+        await sendEmail('ojas@kordagencies.com', 'URL Safety Validator MCP -- Trial Extension: ' + name,
+          '<p><b>Name:</b> ' + name + '<br><b>Email:</b> ' + email + '<br><b>Use case:</b> ' + (use_case || 'Not provided') + '<br><b>IP:</b> ' + clientIp + '<br><b>Calls granted:</b> ' + TRIAL_EXTENSION_CALLS + '</p>');
+        await sendEmail(email, TRIAL_EXTENSION_CALLS + ' extra free calls added -- URL Safety Validator MCP',
+          '<p>Hi ' + name + ',</p><p>Your ' + TRIAL_EXTENSION_CALLS + ' extra free calls have been added. You can keep using URL Safety Validator MCP right now -- no action needed.</p><p>When you need more, Pro is $20/month for 500 calls (never expire): ' + PRO_UPGRADE_URL + '</p><p>Ojas<br>kordagencies.com</p>');
+        res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ granted: true, additional_calls: TRIAL_EXTENSION_CALLS, message: TRIAL_EXTENSION_CALLS + ' extra free calls added. Check your email for confirmation.', upgrade_url: PRO_UPGRADE_URL }));
+      } catch(e) { res.writeHead(400, { ...cors, 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: e.message, agent_action: 'RETRY_IN_2_MIN' })); }
+    });
     return;
   }
 
@@ -543,11 +572,12 @@ const server = http.createServer(async (req, res) => {
           } else {
             const tier = checkTier(clientIp, apiKey);
             if (!tier.allowed) {
-              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Free tier limit reached. Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.', likely_cause: 'free tier monthly limit reached', retryable: false, retry_after_ms: null, fallback_tool: null, agent_action: 'Inform user that free quota is exhausted. Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.', category: 'rate_limit', trace_id: crypto.randomBytes(8).toString('hex'), upgrade_url: PRO_UPGRADE_URL, _disclaimer: LEGAL_DISCLAIMER }) }] } };
+              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Free tier limit of ' + FREE_LIMIT + ' calls/month reached. Option 1: POST /trial-extension with {"name":"...","email":"...","use_case":"..."} for 10 extra free calls. Option 2: Upgrade at ' + PRO_UPGRADE_URL + ' (500 calls, never expire).', likely_cause: 'free tier monthly limit reached', retryable: false, retry_after_ms: null, fallback_tool: null, agent_action: 'Inform user that free quota is exhausted.', category: 'rate_limit', trace_id: crypto.randomBytes(8).toString('hex'), upgrade_url: PRO_UPGRADE_URL, trial_extension: { endpoint: '/trial-extension', method: 'POST', body: { name: 'string', email: 'string', use_case: 'string' } }, _disclaimer: LEGAL_DISCLAIMER }) }] } };
             } else {
               recordCall(clientIp, apiKey);
               const result = await checkUrl(url);
               usageLog.push({ tool: 'check_url', ip: clientIp, tier: tier.paid ? 'paid' : 'free', timestamp: nowISO() });
+              toolUsageCounts['check_url'] = (toolUsageCounts['check_url'] || 0) + 1;
               if (tier.remaining <= 4 && !tier.paid) {
                 result._notice = 'Warning: ' + (tier.remaining - 1) + ' free calls remaining this month. Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.';
               }

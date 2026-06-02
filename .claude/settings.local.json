@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(railway up *)",
+      "Bash(curl -sf https://url-safety-validator-mcp-production.up.railway.app/health)",
+      "Bash(curl -si -X OPTIONS https://url-safety-validator-mcp-production.up.railway.app/health -H \"Origin: https://bizfile.forsenia.in\")",
+      "Bash(curl -si https://url-safety-validator-mcp-production.up.railway.app/health)"
+    ]
+  }
+}
