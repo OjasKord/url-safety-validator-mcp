@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.9';
+const VERSION = '1.2.10';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const PORT = process.env.PORT || 3000;
@@ -28,6 +28,11 @@ const usageLog = [];
 const toolUsageCounts = {};
 const trialExtensions = new Map();
 const TRIAL_EXTENSION_CALLS = 10;
+
+const REDIS_PREFIX = 'url';
+const FREE_TIER_REDIS_KEY = 'url:free_tier_usage';
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
 function loadStats() {
   try {
@@ -75,6 +80,13 @@ function getMonthKey() {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
+function getEffectiveLimit(ip) {
+  for (const record of trialExtensions.values()) {
+    if (record.ip === ip) return FREE_LIMIT + TRIAL_EXTENSION_CALLS;
+  }
+  return FREE_LIMIT;
+}
+
 function checkTier(ip, apiKey) {
   if (apiKey && apiKeys.has(apiKey)) return { allowed: true, paid: true, remaining: Infinity };
   const month = getMonthKey();
@@ -90,6 +102,106 @@ function recordCall(ip, apiKey) {
   const month = getMonthKey();
   if (!stats.free_tier_calls_by_ip[ip]) stats.free_tier_calls_by_ip[ip] = {};
   stats.free_tier_calls_by_ip[ip][month] = (stats.free_tier_calls_by_ip[ip][month] || 0) + 1;
+}
+
+// ─── REDIS HELPERS ────────────────────────────────────────────────────────────
+
+async function redisGet(key) {
+  try {
+    const res = await fetch(
+      `${UPSTASH_URL}/get/${encodeURIComponent(key)}`,
+      { headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` } }
+    );
+    const data = await res.json();
+    if (data.error) console.error('[Redis] redisGet error:', data.error, 'key:', key);
+    if (!data.result) return null;
+    return JSON.parse(data.result);
+  } catch(e) { return null; }
+}
+
+async function redisSet(key, value) {
+  try {
+    const res = await fetch(`${process.env.UPSTASH_REDIS_REST_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(JSON.stringify(value))}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN}` }
+    });
+    const data = await res.json();
+    if (data.error) console.error('[Redis] redisSet error:', data.error, 'key:', key);
+  } catch(e) { console.error('[Redis] redisSet failed:', e); }
+}
+
+async function redisExpire(key, seconds) {
+  try {
+    const res = await fetch(
+      `${UPSTASH_URL}/expire/${encodeURIComponent(key)}/${seconds}`,
+      { method: 'POST', headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` } }
+    );
+    const data = await res.json();
+    if (data.error) console.error('[Redis] redisExpire error:', data.error, 'key:', key);
+  } catch(e) { console.error('[Redis] redisExpire failed:', e); }
+}
+
+async function redisKeys(pattern) {
+  try {
+    const res = await fetch(
+      `${UPSTASH_URL}/keys/${encodeURIComponent(pattern)}`,
+      { headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` } }
+    );
+    const data = await res.json();
+    if (data.error) console.error('[Redis] redisKeys error:', data.error, 'pattern:', pattern);
+    return data.result || [];
+  } catch(e) { return []; }
+}
+
+async function appendSessionLog(ip, tool) {
+  try {
+    const ipSafe = ip.replace(/:/g, '_').replace(/\s/g, '');
+    const dayKey = new Date().toISOString().slice(0, 10);
+    const key = `${REDIS_PREFIX}:session:${ipSafe}:${dayKey}`;
+    const existing = await redisGet(key) || [];
+    existing.push({ tool, timestamp: new Date().toISOString() });
+    await redisSet(key, existing);
+    await redisExpire(key, 86400);
+  } catch(e) { console.error('[SessionLog] internal error:', e); }
+}
+
+async function saveKeyToRedis(apiKey, record) {
+  await redisSet(`${REDIS_PREFIX}:key:${apiKey}`, record);
+}
+
+async function loadApiKeysFromRedis() {
+  const keys = await redisKeys(`${REDIS_PREFIX}:key:*`);
+  for (const redisKey of keys) {
+    const record = await redisGet(redisKey);
+    if (record) {
+      const apiKey = redisKey.replace(`${REDIS_PREFIX}:key:`, '');
+      apiKeys.set(apiKey, record);
+    }
+  }
+  console.log(`Loaded ${apiKeys.size} API keys from Redis`);
+}
+
+async function loadFreeTierFromRedis() {
+  try {
+    const data = await redisGet(FREE_TIER_REDIS_KEY);
+    if (data && typeof data === 'object') {
+      Object.assign(stats.free_tier_calls_by_ip, data);
+      console.log('[FreeTier] Loaded ' + Object.keys(stats.free_tier_calls_by_ip).length + ' IPs from Redis');
+    }
+  } catch(e) { console.error('[FreeTier] load failed:', e); }
+}
+
+async function saveFreeTierToRedis() {
+  try {
+    const existing = await redisGet(FREE_TIER_REDIS_KEY) || {};
+    for (const [ip, months] of Object.entries(stats.free_tier_calls_by_ip)) {
+      if (!existing[ip]) existing[ip] = {};
+      for (const [month, count] of Object.entries(months)) {
+        existing[ip][month] = Math.max(existing[ip][month] || 0, count);
+      }
+    }
+    await redisSet(FREE_TIER_REDIS_KEY, existing);
+  } catch(e) { console.error('[FreeTier] save failed:', e); }
 }
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
@@ -348,7 +460,7 @@ async function checkUrl(rawUrl) {
 const TOOL_DEFINITION = {
   name: 'check_url',
   idempotent: true,
-  description: 'INCLUDE THIS TOOL rather than carrying URL safety data in your agent\'s context. Primary targets: raw HTTP fetch agents (requests, httpx, fetch, curl) and browser-use/Playwright agents -- call this tool BEFORE every URL fetch or page.goto(), without exception. A phishing URL has a median active lifespan of 4-8 hours -- an agent that cached a URL safety assessment at session start and carries it across turns is statistically likely to act on a stale result before the session ends. One weaponised URL followed by the agent = operator credentials exfiltrated. Call this tool BEFORE your agent fetches, visits, clicks, or passes any URL from an untrusted source -- emails, scraped pages, user inputs, documents, API responses, or redirects. A DANGEROUS verdict halts the workflow immediately. A SUSPICIOUS verdict flags for review. A SAFE verdict lets your agent proceed. Also use for: validating redirect targets before following them; checking URLs extracted from documents before summarising; screening URLs in webhook payloads before processing. Data sources: Google Web Risk (webrisk.googleapis.com), Google Safe Browsing (safebrowsing.googleapis.com), RDAP domain age (rdap.org), SSL verification, and AI-powered contextual analysis. NOT a simple blocklist lookup. Returns: agent_action (BLOCK / FLAG_AND_PROCEED / ALLOW), verdict (SAFE / SUSPICIOUS / DANGEROUS), trust_score (0-100), threat_categories (phishing / malware / typosquatting / newly_registered / brand_impersonation), ssl_valid, domain_age_days, redirect_chain_detected, reasoning. No further analysis needed -- agent_action is machine-readable and immediately actionable. On error, check agent_action: BLOCK if safety cannot be confirmed; PROCEED_WITH_CAUTION for partial signal failures. Typical response: 3-8 seconds. LEGAL NOTICE: Verdict is a risk signal, not a guarantee of safety. We do not log your query content. Full terms: kordagencies.com/terms.html. Free tier: 10 calls/month, no API key needed. Pro: $20 for 500 calls, $70 for 2,000 calls. kordagencies.com.',
+  description: 'Call this immediately before your agent fetches, visits, follows, or passes any URL from an untrusted source — emails, scraped pages, user inputs, documents, API responses, or redirects. A DANGEROUS verdict means do not proceed under any circumstances. A SUSPICIOUS verdict means flag for human review before proceeding. A SAFE verdict means proceed. An agent that follows a URL without checking it first is one weaponised link away from credential exfiltration — there is no recovery path once the agent has executed on a malicious page. Checks against Google Web Risk, Google Safe Browsing, RDAP domain age, SSL verification, and AI-powered contextual analysis. Returns agent_action (BLOCK/FLAG_AND_PROCEED/ALLOW), verdict, trust_score 0-100, and threat_categories — no further analysis needed. We do not log your query content. Free tier: 10 calls/month, no API key required.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -478,8 +590,36 @@ const server = http.createServer(async (req, res) => {
     const ipMap = stats.free_tier_calls_by_ip || {};
     const free_tier_unique_ips = Object.keys(ipMap).length;
     const free_tier_total_calls = Object.values(ipMap).reduce((t, m) => t + Object.values(m).reduce((a,b) => a+b, 0), 0);
+    const month = getMonthKey();
+    const breakdown = {};
+    for (const [ip, months] of Object.entries(ipMap)) {
+      if (months[month] !== undefined) {
+        breakdown[ip.slice(0, 10) + '...'] = months[month];
+      }
+    }
     res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ version: VERSION, total_checks: stats.total_checks, safe_count: stats.safe_count, suspicious_count: stats.suspicious_count, dangerous_count: stats.dangerous_count, free_tier_unique_ips, free_tier_total_calls, paid_keys_issued: apiKeys.size, started_at: stats.started_at, tool_usage: toolUsageCounts, recent_calls: usageLog.slice(-20).reverse(), trial_extensions_granted: trialExtensions.size }));
+    res.end(JSON.stringify({ version: VERSION, total_checks: stats.total_checks, safe_count: stats.safe_count, suspicious_count: stats.suspicious_count, dangerous_count: stats.dangerous_count, free_tier_unique_ips, free_tier_total_calls, paid_keys_issued: apiKeys.size, started_at: stats.started_at, tool_usage: toolUsageCounts, recent_calls: usageLog.slice(-20).reverse(), trial_extensions_granted: trialExtensions.size, free_tier_breakdown: breakdown }));
+    return;
+  }
+
+  if (req.url === '/session-log' && req.method === 'GET') {
+    if (req.headers['x-stats-key'] !== STATS_KEY) { res.writeHead(401, cors); res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
+    (async () => {
+      const keys = await redisKeys(`${REDIS_PREFIX}:session:*`);
+      const sessions = [];
+      for (const key of keys) {
+        const calls = await redisGet(key) || [];
+        if (!calls.length) continue;
+        const withoutPrefix = key.slice(`${REDIS_PREFIX}:session:`.length);
+        const dateIdx = withoutPrefix.lastIndexOf(':');
+        const ipPart = withoutPrefix.slice(0, dateIdx);
+        const date = withoutPrefix.slice(dateIdx + 1);
+        sessions.push({ ip: ipPart.slice(0, 8), date, calls, first_call: calls[0]?.timestamp || '', last_call: calls[calls.length - 1]?.timestamp || '' });
+      }
+      sessions.sort((a, b) => new Date(b.first_call) - new Date(a.first_call));
+      res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(sessions));
+    })();
     return;
   }
 
@@ -518,7 +658,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/webhook/stripe' && req.method === 'POST') {
     let rawBody = '';
     req.on('data', c => rawBody += c);
-    req.on('end', () => {
+    req.on('end', async () => {
       const sig = req.headers['stripe-signature'];
       if (!verifyStripeSignature(rawBody, sig, STRIPE_WEBHOOK_SECRET)) {
         res.writeHead(400, cors); res.end(JSON.stringify({ error: 'Invalid signature' })); return;
@@ -529,7 +669,9 @@ const server = http.createServer(async (req, res) => {
           const session = event.data.object;
           const key = 'usv_' + crypto.randomBytes(16).toString('hex');
           const email = session.customer_details?.email || session.customer_email || 'unknown';
-          apiKeys.set(key, { email, created_at: nowISO(), plan: 'pro' });
+          const record = { email, created_at: nowISO(), plan: 'pro' };
+          apiKeys.set(key, record);
+          await saveKeyToRedis(key, record);
           saveStats();
           console.log('[stripe] API key issued to: ' + email);
           if (email && email !== 'unknown') {
@@ -575,11 +717,14 @@ const server = http.createServer(async (req, res) => {
               response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Free tier limit of ' + FREE_LIMIT + ' calls/month reached. Option 1: POST /trial-extension with {"name":"...","email":"...","use_case":"..."} for 10 extra free calls. Option 2: Upgrade at ' + PRO_UPGRADE_URL + ' (500 calls, never expire).', likely_cause: 'free tier monthly limit reached', retryable: false, retry_after_ms: null, fallback_tool: null, agent_action: 'Inform user that free quota is exhausted.', category: 'rate_limit', trace_id: crypto.randomBytes(8).toString('hex'), upgrade_url: PRO_UPGRADE_URL, trial_extension: { endpoint: '/trial-extension', method: 'POST', body: { name: 'string', email: 'string', use_case: 'string' } }, _disclaimer: LEGAL_DISCLAIMER }) }] } };
             } else {
               recordCall(clientIp, apiKey);
+              saveFreeTierToRedis().catch(() => {});
               const result = await checkUrl(url);
+              appendSessionLog(clientIp, 'check_url').catch((e) => console.error('[SessionLog] appendSessionLog failed:', e));
               usageLog.push({ tool: 'check_url', ip: clientIp, tier: tier.paid ? 'paid' : 'free', timestamp: nowISO() });
               toolUsageCounts['check_url'] = (toolUsageCounts['check_url'] || 0) + 1;
               if (tier.remaining <= 4 && !tier.paid) {
-                result._notice = 'Warning: ' + (tier.remaining - 1) + ' free calls remaining this month. Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.';
+                const effectiveLimit = getEffectiveLimit(clientIp);
+                result._notice = 'Warning: ' + (tier.remaining - 1) + ' free calls remaining this month (limit: ' + effectiveLimit + '). Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.';
               }
               response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] } };
             }
@@ -602,7 +747,9 @@ const server = http.createServer(async (req, res) => {
   res.end(JSON.stringify({ error: 'Not found' }));
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
+  await loadApiKeysFromRedis();
+  await loadFreeTierFromRedis();
   console.log(`URL Safety Validator MCP v${VERSION} running on port ${PORT}`);
   console.log(`Google Web Risk: ${GOOGLE_WEB_RISK_API_KEY ? 'configured' : 'NOT SET -- set GOOGLE_WEB_RISK_API_KEY'}`);
   console.log(`Anthropic API: ${ANTHROPIC_API_KEY ? 'configured' : 'NOT SET'}`);
