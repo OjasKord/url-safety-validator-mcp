@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.10';
+const VERSION = '1.2.11';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const PORT = process.env.PORT || 3000;
@@ -683,6 +683,58 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(400, cors); res.end(JSON.stringify({ error: e.message }));
       }
     });
+    return;
+  }
+
+  if (req.url === '/daily-report' && req.method === 'POST') {
+    if (req.headers['x-stats-key'] !== process.env.STATS_KEY) {
+      res.writeHead(401, cors); res.end(JSON.stringify({ error: 'Unauthorized' })); return;
+    }
+    (async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const since24h = new Date(Date.now() - 86400000).toISOString();
+      const cutoffMs = Date.now() - 86400000;
+
+      const recentLog = usageLog.filter(e => e.timestamp >= since24h);
+      const calls24h = recentLog.length;
+      const unique24h = new Set(recentLog.map(e => e.ip)).size;
+
+      const month = new Date().toISOString().slice(0, 7);
+      let limitHits = 0;
+      for (const months of Object.values(stats.free_tier_calls_by_ip || {})) {
+        if ((months[month] || 0) >= FREE_LIMIT) limitHits++;
+      }
+
+      let trialCount = 0;
+      for (const record of trialExtensions.values()) {
+        if (record.granted_at && record.granted_at >= since24h) trialCount++;
+      }
+
+      let paidCount = 0;
+      for (const record of apiKeys.values()) {
+        const ts = record.created_at ? new Date(record.created_at).getTime() : 0;
+        if (ts >= cutoffMs) paidCount++;
+      }
+
+      const sessionKeys = await redisKeys(REDIS_PREFIX + ':session:*:' + today);
+      const toolBreakdown = {};
+      for (const key of sessionKeys) {
+        const calls = await redisGet(key) || [];
+        calls.forEach(c => { if (c.tool) toolBreakdown[c.tool] = (toolBreakdown[c.tool] || 0) + 1; });
+      }
+
+      res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        server: 'url-safety-validator-mcp',
+        date: today,
+        calls_24h: calls24h,
+        unique_ips_24h: unique24h,
+        limit_hits: limitHits,
+        trial_extensions: trialCount,
+        paid_conversions: paidCount,
+        tool_breakdown: toolBreakdown
+      }));
+    })();
     return;
   }
 
