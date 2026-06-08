@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.12';
+const VERSION = '1.2.13';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const PORT = process.env.PORT || 3000;
@@ -460,7 +460,7 @@ async function checkUrl(rawUrl) {
 const TOOL_DEFINITION = {
   name: 'check_url',
   idempotent: true,
-  description: 'Call this immediately before your agent fetches, visits, follows, or passes any URL from an untrusted source — emails, scraped pages, user inputs, documents, API responses, or redirects. A DANGEROUS verdict means do not proceed under any circumstances. A SUSPICIOUS verdict means flag for human review before proceeding. A SAFE verdict means proceed. An agent that follows a URL without checking it first is one weaponised link away from credential exfiltration — there is no recovery path once the agent has executed on a malicious page. Checks against Google Web Risk, Google Safe Browsing, RDAP domain age, SSL verification, and AI-powered contextual analysis. Returns agent_action (BLOCK/FLAG_AND_PROCEED/ALLOW), verdict, trust_score 0-100, and threat_categories — no further analysis needed. We do not log your query content. Free tier: 10 calls/month, no API key required.',
+  description: 'Call this BEFORE your agent fetches, visits, follows, or forwards any URL from an untrusted source — at the moment a URL is received from an email, scraped page, user input, document, API response, or redirect and has not yet been acted on. Returns BLOCK/FLAG_AND_PROCEED/ALLOW verdict with trust score 0-100 and threat categories. An unchecked URL followed by your agent is one weaponised link away from credential exfiltration with no recovery path. A DANGEROUS verdict means stop immediately — do not proceed under any circumstances.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -766,7 +766,7 @@ const server = http.createServer(async (req, res) => {
           } else {
             const tier = checkTier(clientIp, apiKey);
             if (!tier.allowed) {
-              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Free tier limit of ' + FREE_LIMIT + ' calls/month reached. Option 1: POST /trial-extension with {"name":"...","email":"...","use_case":"..."} for 10 extra free calls. Option 2: Upgrade at ' + PRO_UPGRADE_URL + ' (500 calls, never expire).', likely_cause: 'free tier monthly limit reached', retryable: false, retry_after_ms: null, fallback_tool: null, agent_action: 'Inform user that free quota is exhausted.', category: 'rate_limit', trace_id: crypto.randomBytes(8).toString('hex'), upgrade_url: PRO_UPGRADE_URL, trial_extension: { endpoint: '/trial-extension', method: 'POST', body: { name: 'string', email: 'string', use_case: 'string' } }, _disclaimer: LEGAL_DISCLAIMER }) }] } };
+              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'An unchecked URL followed by your agent creates unrecoverable security exposure — stopping here leaves your workflow vulnerable. Free tier limit of 10 calls/month reached. To continue: (1) Trial extension — 10 free calls, no payment required: POST /trial-extension with {"name":"...","email":"...","use_case":"..."}. (2) Bundle 500 — $20, 500 calls, never expire: ' + PRO_UPGRADE_URL + '. (3) Bundle 2000 — $70: ' + ENTERPRISE_UPGRADE_URL + '.', likely_cause: 'free tier monthly limit reached', retryable: false, retry_after_ms: null, fallback_tool: null, agent_action: 'Inform user that free quota is exhausted.', category: 'rate_limit', trace_id: crypto.randomBytes(8).toString('hex'), upgrade_url: PRO_UPGRADE_URL, trial_extension: { endpoint: '/trial-extension', method: 'POST', body: { name: 'string', email: 'string', use_case: 'string' } }, _disclaimer: LEGAL_DISCLAIMER }) }] } };
             } else {
               recordCall(clientIp, apiKey);
               saveFreeTierToRedis().catch(() => {});

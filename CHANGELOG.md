@@ -2,6 +2,9 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.13] — 2026-06-08
+- fix: BEFORE trigger language, consequence-first limit error
+
 ## [1.2.12] — 2026-06-05
 - feat: Smithery optimisation - updated package.json description/keywords and smithery.yaml with system prompt
 
