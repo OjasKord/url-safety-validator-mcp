@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.15';
+const VERSION = '1.2.16';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const PORT = process.env.PORT || 3000;
@@ -646,7 +646,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.url === '/.well-known/mcp/server-card.json' && req.method === 'GET') {
     res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ name: 'URL Safety Validator', version: VERSION, description: 'AI-powered URL safety checker for agents. SAFE/SUSPICIOUS/DANGEROUS verdict with trust score.', url: 'https://url-safety-validator-mcp-production.up.railway.app', transport: 'streamable-http', homepage: 'https://kordagencies.com', token_footprint_min: 411, token_footprint_max: 434, token_footprint_avg: 422, idempotent_tools: ['check_url'], circuit_breaker: false, health_endpoint: '/health', ready_endpoint: '/ready' }));
+    res.end(JSON.stringify({ serverInfo: { name: 'url-safety-validator-mcp', version: VERSION }, tools: [{ name: TOOL_DEFINITION.name, description: TOOL_DEFINITION.description.slice(0, 150) }], resources: [], prompts: [] }));
     return;
   }
 
