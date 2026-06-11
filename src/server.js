@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.13';
+const VERSION = '1.2.14';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const PORT = process.env.PORT || 3000;
@@ -28,6 +28,22 @@ const usageLog = [];
 const toolUsageCounts = {};
 const trialExtensions = new Map();
 const TRIAL_EXTENSION_CALLS = 10;
+
+const perMinuteUsage = new Map();
+
+function checkPerMinuteLimit(ip, toolName, limit) {
+  const minuteKey = ip + ':' + toolName + ':' + new Date().toISOString().slice(0, 16);
+  const count = perMinuteUsage.get(minuteKey) || 0;
+  if (count >= limit) return false;
+  perMinuteUsage.set(minuteKey, count + 1);
+  if (perMinuteUsage.size > 10000) {
+    const currentMinute = new Date().toISOString().slice(0, 16);
+    for (const [key] of perMinuteUsage) {
+      if (!key.includes(currentMinute)) perMinuteUsage.delete(key);
+    }
+  }
+  return true;
+}
 
 const REDIS_PREFIX = 'url';
 const FREE_TIER_REDIS_KEY = 'url:free_tier_usage';
@@ -515,11 +531,16 @@ function setupStdio() {
           } else if (request.method === 'prompts/list') {
             response = { jsonrpc: '2.0', id: request.id, result: { prompts: [] } };
           } else if (request.method === 'tools/call' && request.params?.name === 'check_url') {
-            const url = request.params?.arguments?.url;
-            if (!url) { response = { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: 'url parameter required' } }; }
-            else {
-              const result = await checkUrl(url);
-              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] } };
+            const _ks = 'TOOL_DISABLED_CHECK_URL';
+            if (process.env[_ks] === 'true') {
+              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'This tool is temporarily unavailable for maintenance.', agent_action: 'RETRY_IN_30_MIN', retryable: true, retry_after_ms: 1800000 }) }] } };
+            } else {
+              const url = request.params?.arguments?.url;
+              if (!url) { response = { jsonrpc: '2.0', id: request.id, error: { code: -32602, message: 'url parameter required' } }; }
+              else {
+                const result = await checkUrl(url);
+                response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] } };
+              }
             }
           } else {
             response = { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Method not found: ' + request.method } };
@@ -760,6 +781,11 @@ const server = http.createServer(async (req, res) => {
         } else if (request.method === 'prompts/list') {
           response = { jsonrpc: '2.0', id: request.id, result: { prompts: [] } };
         } else if (request.method === 'tools/call' && request.params?.name === 'check_url') {
+          if (process.env['TOOL_DISABLED_CHECK_URL'] === 'true') {
+            response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'This tool is temporarily unavailable for maintenance.', agent_action: 'RETRY_IN_30_MIN', retryable: true, retry_after_ms: 1800000 }) }] } };
+          } else if (!checkPerMinuteLimit(clientIp, 'check_url', 5)) {
+            response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'Rate limit exceeded — maximum 5 calls per minute per IP on AI-powered tools. Your workflow is calling this tool too rapidly.', agent_action: 'RETRY_IN_60_SEC', retryable: true, retry_after_ms: 60000, limit: 5, window: '1 minute' }) }] } };
+          } else {
           const url = request.params?.arguments?.url;
           if (!url) {
             response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'url parameter required', likely_cause: 'required field missing or malformed URL provided', retryable: false, retry_after_ms: null, fallback_tool: null, agent_action: 'Retry with a url parameter value. Example: {"url":"https://example.com"}', category: 'invalid_input', trace_id: crypto.randomBytes(8).toString('hex'), _disclaimer: LEGAL_DISCLAIMER }) }] } };
@@ -780,6 +806,7 @@ const server = http.createServer(async (req, res) => {
               }
               response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] } };
             }
+          }
           }
         } else {
           response = { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Method not found: ' + request.method } };

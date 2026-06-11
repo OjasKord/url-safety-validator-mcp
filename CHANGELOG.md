@@ -2,6 +2,9 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.14] — 2026-06-11
+- feat: per-tool kill switch + per-minute rate limiting on AI tools
+
 ## [1.2.13] — 2026-06-08
 - fix: BEFORE trigger language, consequence-first limit error
 
