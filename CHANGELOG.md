@@ -2,6 +2,9 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.18] — 2026-06-15
+- feat: add hold_reason, retry_after, escalation_path to FLAG_AND_PROCEED (SUSPICIOUS) responses in check_url
+
 ## [1.2.17] — 2026-06-15
 - feat: reposition tool description for agentic payment rail discovery -- Stripe MPP, Alipay AI Pay, Shopify UCP trigger vocabulary in check_url and initialize description
 

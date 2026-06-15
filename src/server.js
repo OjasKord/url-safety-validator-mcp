@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.17';
+const VERSION = '1.2.18';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const PORT = process.env.PORT || 3000;
@@ -467,6 +467,13 @@ async function checkUrl(rawUrl) {
     _disclaimer: LEGAL_DISCLAIMER
   };
 
+  if (verdict === 'SUSPICIOUS') {
+    result.hold_reason = ai.available && ai.threat_categories.length > 0
+      ? ai.threat_categories[0]
+      : 'URL flagged as suspicious by Google Web Risk or Google Safe Browsing threat databases';
+    result.retry_after = null;
+    result.escalation_path = 'Do not follow this URL for any payment transaction -- verify destination domain through independent means before proceeding';
+  }
   result.token_count = Math.ceil(JSON.stringify(result).length / 4);
   saveStats();
   return result;
