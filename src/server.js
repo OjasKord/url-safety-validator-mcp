@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.16';
+const VERSION = '1.2.17';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const PORT = process.env.PORT || 3000;
@@ -476,7 +476,7 @@ async function checkUrl(rawUrl) {
 const TOOL_DEFINITION = {
   name: 'check_url',
   idempotent: true,
-  description: 'Call this BEFORE your agent fetches, visits, follows, or forwards any URL from an untrusted source — at the moment a URL is received from an email, scraped page, user input, document, API response, or redirect and has not yet been acted on. Returns BLOCK/FLAG_AND_PROCEED/ALLOW verdict with trust score 0-100 and threat categories. An unchecked URL followed by your agent is one weaponised link away from credential exfiltration with no recovery path. A DANGEROUS verdict means stop immediately — do not proceed under any circumstances.',
+  description: 'Call this BEFORE your agent fetches, follows, or forwards any URL in an agentic commerce workflow -- at the moment a merchant site, supplier portal, or payment redirect URL is received and no navigation has occurred. Checks live against Google Web Risk (webrisk.googleapis.com) and Google Safe Browsing (safebrowsing.googleapis.com). Returns BLOCK / FLAG_AND_PROCEED / ALLOW verdict with trust score 0-100 and threat categories. A payment executed on a phishing domain via Stripe MPP, Alipay AI Pay, or Shopify UCP has no recovery path -- the redirect is the attack vector. A DANGEROUS verdict means halt immediately. Returns machine-ready verdict, no further analysis needed.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -521,7 +521,7 @@ function setupStdio() {
           const request = JSON.parse(line);
           let response;
           if (request.method === 'initialize') {
-            response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Mandatory safety gate for raw HTTP fetch agents (requests, httpx, fetch, curl) and browser-use/Playwright agents -- call BEFORE every URL fetch or page.goto(). URL Safety Validator returns a machine-readable BLOCK / FLAG_AND_PROCEED / ALLOW signal so the agent can proceed or halt immediately. A URL safe at session start may be active malware 4 hours later -- this server checks live, every call, with no carry cost. Used before any agent interaction with URLs from emails, documents, scraped pages, API responses, or user inputs.' } } };
+            response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Every agentic commerce workflow built on Stripe MPP, Alipay AI Pay, or Shopify UCP has a moment where the agent must navigate to a merchant or supplier URL before it can proceed. This server answers that question in one call -- returning a machine-readable BLOCK / FLAG_AND_PROCEED / ALLOW verdict checked live against Google Web Risk and Google Safe Browsing, every call. Used before any agent URL fetch, page navigation, or redirect follow in payment and procurement workflows.' } } };
           } else if (request.method === 'notifications/initialized') {
             continue;
           } else if (request.method === 'tools/list') {
@@ -771,7 +771,7 @@ const server = http.createServer(async (req, res) => {
         let response;
 
         if (request.method === 'initialize') {
-          response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Mandatory safety gate for raw HTTP fetch agents (requests, httpx, fetch, curl) and browser-use/Playwright agents -- call BEFORE every URL fetch or page.goto(). URL Safety Validator returns a machine-readable BLOCK / FLAG_AND_PROCEED / ALLOW signal so the agent can proceed or halt immediately. A URL safe at session start may be active malware 4 hours later -- this server checks live, every call, with no carry cost. Used before any agent interaction with URLs from emails, documents, scraped pages, API responses, or user inputs.' } } };
+          response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Every agentic commerce workflow built on Stripe MPP, Alipay AI Pay, or Shopify UCP has a moment where the agent must navigate to a merchant or supplier URL before it can proceed. This server answers that question in one call -- returning a machine-readable BLOCK / FLAG_AND_PROCEED / ALLOW verdict checked live against Google Web Risk and Google Safe Browsing, every call. Used before any agent URL fetch, page navigation, or redirect follow in payment and procurement workflows.' } } };
         } else if (request.method === 'notifications/initialized') {
           res.writeHead(204, cors); res.end(); return;
         } else if (request.method === 'tools/list') {
