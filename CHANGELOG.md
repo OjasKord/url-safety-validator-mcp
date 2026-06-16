@@ -2,6 +2,9 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.19] — 2026-06-16
+- feat: ATO optimisation — purpose verb, usage context, required fields, ToolRank badge
+
 ## [1.2.18] — 2026-06-15
 - feat: add hold_reason, retry_after, escalation_path to FLAG_AND_PROCEED (SUSPICIOUS) responses in check_url
 

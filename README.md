@@ -2,6 +2,8 @@
 
 # URL Safety Validator MCP
 
+[![ToolRank](https://toolrank.dev/badge/dominant.svg)](https://toolrank.dev/ranking)
+
 **Stop your agent from fetching a dangerous URL before it's too late.**
 
 Agents that process emails, scrape pages, or consume API responses encounter URLs from untrusted sources constantly. This server gives your agent a single call to gate every URL before it proceeds — returning a SAFE/SUSPICIOUS/DANGEROUS verdict backed by Google Web Risk, URLhaus, PhishTank, and AI analysis.

@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.18';
+const VERSION = '1.2.19';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const PORT = process.env.PORT || 3000;
@@ -483,7 +483,7 @@ async function checkUrl(rawUrl) {
 const TOOL_DEFINITION = {
   name: 'check_url',
   idempotent: true,
-  description: 'Call this BEFORE your agent fetches, follows, or forwards any URL in an agentic commerce workflow -- at the moment a merchant site, supplier portal, or payment redirect URL is received and no navigation has occurred. Checks live against Google Web Risk (webrisk.googleapis.com) and Google Safe Browsing (safebrowsing.googleapis.com). Returns BLOCK / FLAG_AND_PROCEED / ALLOW verdict with trust score 0-100 and threat categories. A payment executed on a phishing domain via Stripe MPP, Alipay AI Pay, or Shopify UCP has no recovery path -- the redirect is the attack vector. A DANGEROUS verdict means halt immediately. Returns machine-ready verdict, no further analysis needed.',
+  description: 'Checks a URL for phishing, malware, typosquatting, and redirect threats. Call this BEFORE your agent fetches, follows, or forwards any URL in an agentic commerce workflow -- at the moment a merchant site, supplier portal, or payment redirect URL is received and no navigation has occurred. Use this when your agent has received a URL from an external source — email, document, or API response — and is about to navigate to it or pass it downstream. Checks live against Google Web Risk (webrisk.googleapis.com) and Google Safe Browsing (safebrowsing.googleapis.com). Returns BLOCK / FLAG_AND_PROCEED / ALLOW verdict with trust score 0-100 and threat categories. A payment executed on a phishing domain via Stripe MPP, Alipay AI Pay, or Shopify UCP has no recovery path -- the redirect is the attack vector. A DANGEROUS verdict means halt immediately. Returns machine-ready verdict, no further analysis needed.',
   inputSchema: {
     type: 'object',
     properties: {
