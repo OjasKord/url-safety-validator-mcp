@@ -5,9 +5,10 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.20';
+const VERSION = '1.2.21';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
+const ALLOWED_PAYMENT_LINK_IDS = ['plink_1TQzIHD6WvRe6sn3820kFk07', 'plink_1TQzJdD6WvRe6sn3GN8mQkj9'];
 const PORT = process.env.PORT || 3000;
 const STATS_KEY = process.env.STATS_KEY || 'ojas2026';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
@@ -695,6 +696,11 @@ const server = http.createServer(async (req, res) => {
         const event = JSON.parse(rawBody);
         if (event.type === 'checkout.session.completed') {
           const session = event.data.object;
+          const paymentLinkId = session.payment_link;
+          if (paymentLinkId && !ALLOWED_PAYMENT_LINK_IDS.includes(paymentLinkId)) {
+            console.log('[url-safety] Webhook received but payment link ' + paymentLinkId + ' not for this server — ignoring.');
+            res.writeHead(200, cors); res.end(JSON.stringify({ received: true, ignored: true })); return;
+          }
           const key = 'usv_' + crypto.randomBytes(16).toString('hex');
           const email = session.customer_details?.email || session.customer_email || 'unknown';
           const record = { email, created_at: nowISO(), plan: 'pro' };

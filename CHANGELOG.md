@@ -2,6 +2,9 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.21] — 2026-06-17
+- fix: Stripe webhook now validates payment_link ID — ignores events not belonging to this server
+
 ## [1.2.20] — 2026-06-17
 - feat: SmitheryBot detection on check_url — returns mock SAFE verdict without consuming Google Safe Browsing credits
 
