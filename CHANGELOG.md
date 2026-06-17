@@ -2,6 +2,9 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.20] — 2026-06-17
+- feat: SmitheryBot detection on check_url — returns mock SAFE verdict without consuming Google Safe Browsing credits
+
 ## [1.2.19] — 2026-06-16
 - feat: ATO optimisation — purpose verb, usage context, required fields, ToolRank badge
 
