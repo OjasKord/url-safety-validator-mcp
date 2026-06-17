@@ -3,7 +3,7 @@
   "name": "io.github.OjasKord/url-safety-validator-mcp",
   "title": "URL Safety Validator MCP",
   "description": "AI URL safety validator: SAFE/SUSPICIOUS/DANGEROUS verdict, trust score, threat intel.",
-  "version": "1.2.6",
+  "version": "1.2.20",
   "websiteUrl": "https://kordagencies.com",
   "repository": {
     "url": "https://github.com/OjasKord/url-safety-validator-mcp",
@@ -13,14 +13,36 @@
     {
       "registryType": "npm",
       "identifier": "url-safety-validator-mcp",
-      "version": "1.2.6",
-      "transport": { "type": "stdio" },
+      "version": "1.2.19",
+      "transport": {
+        "type": "stdio"
+      },
       "environmentVariables": [
-        { "name": "ANTHROPIC_API_KEY", "description": "Anthropic API key for AI trust scoring", "isRequired": true, "isSecret": true },
-        { "name": "GOOGLE_WEB_RISK_API_KEY", "description": "Google Web Risk API key (commercial). Degrades gracefully without it.", "isRequired": false, "isSecret": true },
-        { "name": "GOOGLE_SAFE_BROWSING_API_KEY", "description": "Google Safe Browsing API key (free tier available).", "isRequired": false, "isSecret": true }
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "description": "Anthropic API key for AI trust scoring",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "GOOGLE_WEB_RISK_API_KEY",
+          "description": "Google Web Risk API key (commercial). Degrades gracefully without it.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "GOOGLE_SAFE_BROWSING_API_KEY",
+          "description": "Google Safe Browsing API key (free tier available).",
+          "isRequired": false,
+          "isSecret": true
+        }
       ]
     }
   ],
-  "remotes": [{ "type": "streamable-http", "url": "https://url-safety-validator-mcp-production.up.railway.app" }]
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://url-safety-validator-mcp-production.up.railway.app"
+    }
+  ]
 }
