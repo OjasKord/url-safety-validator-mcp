@@ -2,6 +2,9 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.22] — 2026-06-18
+- feat: revoke API key on Stripe refund
+
 ## [1.2.21] — 2026-06-17
 - fix: Stripe webhook now validates payment_link ID — ignores events not belonging to this server
 
