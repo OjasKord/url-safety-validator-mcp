@@ -2,6 +2,9 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.23] — 2026-06-20
+- feat: email notification on free tier gate hit
+
 ## [1.2.22] — 2026-06-18
 - feat: revoke API key on Stripe refund
 
