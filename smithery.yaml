@@ -1,4 +1,5 @@
 name: URL Safety Validator MCP
+agentRole: "URL Safety Specialist — equip before fetching, visiting, or following any untrusted URL"
 description: "Before your agent fetches, visits, or follows any URL from an untrusted source, call check_url. Returns BLOCK/ALLOW verdict with threat category and trust score. 2 focused tools. Compact schema. Minimal agent context overhead."
 categories:
   - Security

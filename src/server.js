@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.23';
+const VERSION = '1.2.24';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const ALLOWED_PAYMENT_LINK_IDS = ['plink_1TQzIHD6WvRe6sn3820kFk07', 'plink_1TQzJdD6WvRe6sn3GN8mQkj9'];
@@ -848,6 +848,7 @@ const server = http.createServer(async (req, res) => {
         const apiKey = req.headers['x-api-key'] || null;
         const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim();
         let response;
+        let statusCode = 200;
 
         if (request.method === 'initialize') {
           response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Every agentic commerce workflow built on Stripe MPP, Alipay AI Pay, or Shopify UCP has a moment where the agent must navigate to a merchant or supplier URL before it can proceed. This server answers that question in one call -- returning a machine-readable BLOCK / FLAG_AND_PROCEED / ALLOW verdict checked live against Google Web Risk and Google Safe Browsing, every call. Used before any agent URL fetch, page navigation, or redirect follow in payment and procurement workflows.' } } };
@@ -874,6 +875,7 @@ const server = http.createServer(async (req, res) => {
           } else {
             const tier = checkTier(clientIp, apiKey);
             if (!tier.allowed) {
+              statusCode = 402;
               const _gateMonth = getMonthKey();
               const _gateCalls = (stats.free_tier_calls_by_ip[clientIp] && stats.free_tier_calls_by_ip[clientIp][_gateMonth]) || 0;
               notifyGateHit('URL Safety Validator', clientIp, 'check_url', _gateCalls, PRO_UPGRADE_URL);
@@ -897,7 +899,7 @@ const server = http.createServer(async (req, res) => {
           response = { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Method not found: ' + request.method } };
         }
 
-        res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+        res.writeHead(statusCode, { ...cors, 'Content-Type': 'application/json' });
         res.end(JSON.stringify(response));
       } catch(e) {
         res.writeHead(400, { ...cors, 'Content-Type': 'application/json' });

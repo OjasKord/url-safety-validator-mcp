@@ -2,6 +2,9 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.24] — 2026-06-23
+- fix: gate returns HTTP 402 (x402 standard for non-transient quota)
+
 ## [1.2.23] — 2026-06-20
 - feat: email notification on free tier gate hit
 
