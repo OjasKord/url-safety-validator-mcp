@@ -1,6 +1,6 @@
 name: URL Safety Validator MCP
 agentRole: "URL Safety Specialist — equip before fetching, visiting, or following any untrusted URL"
-description: "Before your agent fetches, visits, or follows any URL from an untrusted source, call check_url. Returns BLOCK/ALLOW verdict with threat category and trust score. 2 focused tools. Compact schema. Minimal agent context overhead."
+description: "Pre-condition: an agent has received a URL from an untrusted source -- email, document, scraped page, or API response -- and is about to fetch, visit, or follow it. Skip this and a payment executed on a phishing domain via an agentic payment rail has no recovery path, since the redirect itself is the attack vector. check_url returns verdict SAFE/SUSPICIOUS/DANGEROUS with a derived agent_action ALLOW/FLAG_AND_PROCEED/BLOCK, checked live against Google Web Risk and Google Safe Browsing. 1 tool, one verdict, no further reasoning required."
 categories:
   - Security
   - Web

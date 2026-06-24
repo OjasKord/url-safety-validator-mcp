@@ -2,6 +2,15 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.25] — 2026-06-24
+- feat: unauthenticated /public-stats endpoint -- first_deployed, lifetime tool calls, uptime %, version, for agent orchestrators evaluating server trustworthiness
+- feat: /process-trial-followups endpoint + 24h follow-up record on trial-extension grant
+- feat: gate response now self-contained (server + workflow impact + upgrade path in one sentence) and detects cross-server operators via shared fleet Redis, with cross-server trial-extension note
+- feat: outputSchema added to check_url (additive, response format unchanged)
+- fix: tool description and both initialize descriptions said "Returns BLOCK / FLAG_AND_PROCEED / ALLOW verdict" -- the real `verdict` field is SAFE/SUSPICIOUS/DANGEROUS; BLOCK/FLAG_AND_PROCEED/ALLOW is a separate derived `agent_action` field. Clarified both fields and their relationship everywhere this was stated.
+- fix: glama.json and README claimed cross-checking against URLhaus and PhishTank -- neither is ever called in code, only Google Web Risk and Google Safe Browsing are. Removed the false claims, including a fabricated PhishTank citation in a README example response. Also fixed smithery.yaml claiming "2 focused tools" when this server has exactly 1 (check_url).
+- fix: /deps health check previously treated HTTP 403 (key rejected) on Google Web Risk as ok:true via the `statusCode < 500` pattern -- now treats 403 on an authenticated API as ok:false with error:'auth_failed'
+
 ## [1.2.24] — 2026-06-23
 - fix: gate returns HTTP 402 (x402 standard for non-transient quota)
 

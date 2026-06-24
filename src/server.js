@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.24';
+const VERSION = '1.2.25';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const ALLOWED_PAYMENT_LINK_IDS = ['plink_1TQzIHD6WvRe6sn3820kFk07', 'plink_1TQzJdD6WvRe6sn3GN8mQkj9'];
@@ -50,6 +50,13 @@ const REDIS_PREFIX = 'url';
 const FREE_TIER_REDIS_KEY = 'url:free_tier_usage';
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const FIRST_DEPLOYED = '2026-04-22T06:38:09Z';
+const LIFETIME_CALLS_REDIS_KEY = 'url:lifetime_calls';
+const UPTIME_HEARTBEAT_KEY = 'url:uptime:heartbeat_count';
+const UPTIME_MONITORING_START_KEY = 'url:uptime:monitoring_started';
+const UPTIME_HEARTBEAT_INTERVAL_MS = 60000;
+const FLEET_IP24_TTL_SECONDS = 30 * 24 * 60 * 60;
+const FLEET_CROSS_SERVER_THRESHOLD = 3;
 
 function loadStats() {
   try {
@@ -179,6 +186,56 @@ async function redisDelete(key) {
     const data = await res.json();
     if (data.error) console.error('[Redis] redisDelete error:', data.error, 'key:', key);
   } catch(e) { console.error('[Redis] redisDelete failed:', e); }
+}
+
+async function redisIncr(key) {
+  try {
+    const res = await fetch(
+      `${UPSTASH_URL}/incr/${encodeURIComponent(key)}`,
+      { headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` } }
+    );
+    const data = await res.json();
+    if (data.error) { console.error('[Redis] redisIncr error:', data.error, 'key:', key); return null; }
+    return data.result;
+  } catch(e) { console.error('[Redis] redisIncr failed:', e); return null; }
+}
+
+// ─── FLEET CROSS-SERVER OPERATOR DETECTION ─────────────────────────────────────
+async function recordFleetGateHit(ip) {
+  try {
+    const ip24 = truncateIp(ip);
+    const key = `fleet:ip24:${ip24}:${REDIS_PREFIX}`;
+    await redisSet(key, new Date().toISOString());
+    await redisExpire(key, FLEET_IP24_TTL_SECONDS);
+  } catch(e) { console.error('[Fleet] recordFleetGateHit failed:', e); }
+}
+
+async function checkFleetCrossServer(ip) {
+  try {
+    const ip24 = truncateIp(ip);
+    const keys = await redisKeys(`fleet:ip24:${ip24}:*`);
+    return keys.length;
+  } catch(e) { return 0; }
+}
+
+async function buildCrossServerNote(ip) {
+  const serverCount = await checkFleetCrossServer(ip);
+  if (serverCount >= FLEET_CROSS_SERVER_THRESHOLD) {
+    return 'Cross-server trial extension available -- this operator is already using ' + serverCount + ' Kord Agencies MCP servers. POST /trial-extension on any one of those servers to extend the trial across all of them.';
+  }
+  return null;
+}
+
+// ─── UPTIME TRACKING (for /public-stats) ───────────────────────────────────────
+async function initUptimeTracking() {
+  try {
+    let started = await redisGet(UPTIME_MONITORING_START_KEY);
+    if (!started) {
+      started = new Date().toISOString();
+      await redisSet(UPTIME_MONITORING_START_KEY, started);
+    }
+    setInterval(() => { redisIncr(UPTIME_HEARTBEAT_KEY).catch(() => {}); }, UPTIME_HEARTBEAT_INTERVAL_MS);
+  } catch(e) { console.error('[Uptime] initUptimeTracking failed:', e); }
 }
 
 async function findCheckoutSessionEmail(paymentIntentId) {
@@ -516,13 +573,40 @@ async function checkUrl(rawUrl) {
 const TOOL_DEFINITION = {
   name: 'check_url',
   idempotent: true,
-  description: 'Checks a URL for phishing, malware, typosquatting, and redirect threats. Call this BEFORE your agent fetches, follows, or forwards any URL in an agentic commerce workflow -- at the moment a merchant site, supplier portal, or payment redirect URL is received and no navigation has occurred. Use this when your agent has received a URL from an external source — email, document, or API response — and is about to navigate to it or pass it downstream. Checks live against Google Web Risk (webrisk.googleapis.com) and Google Safe Browsing (safebrowsing.googleapis.com). Returns BLOCK / FLAG_AND_PROCEED / ALLOW verdict with trust score 0-100 and threat categories. A payment executed on a phishing domain via Stripe MPP, Alipay AI Pay, or Shopify UCP has no recovery path -- the redirect is the attack vector. A DANGEROUS verdict means halt immediately. Returns machine-ready verdict, no further analysis needed.',
+  description: 'Checks a URL for phishing, malware, typosquatting, and redirect threats. Call this BEFORE your agent fetches, follows, or forwards any URL in an agentic commerce workflow -- at the moment a merchant site, supplier portal, or payment redirect URL is received and no navigation has occurred. Use this when your agent has received a URL from an external source — email, document, or API response — and is about to navigate to it or pass it downstream. Checks live against Google Web Risk (webrisk.googleapis.com) and Google Safe Browsing (safebrowsing.googleapis.com). Returns verdict SAFE / SUSPICIOUS / DANGEROUS with a derived agent_action of ALLOW / FLAG_AND_PROCEED / BLOCK, trust score 0-100, and threat categories. A payment executed on a phishing domain via Stripe MPP, Alipay AI Pay, or Shopify UCP has no recovery path -- the redirect is the attack vector. A DANGEROUS verdict means halt immediately. Returns machine-ready verdict, no further analysis needed.',
   inputSchema: {
     type: 'object',
     properties: {
       url: { type: 'string', description: 'The URL to check. Full URL preferred (e.g. https://example.com/path). Bare domains also accepted.' }
     },
     required: ['url']
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      url: { type: 'string' },
+      hostname: { type: 'string' },
+      verdict: { type: 'string', enum: ['SAFE', 'SUSPICIOUS', 'DANGEROUS'] },
+      agent_action: { type: 'string', enum: ['ALLOW', 'FLAG_AND_PROCEED', 'BLOCK'], description: 'Derived directly from verdict' },
+      trust_score: { type: 'number', minimum: 0, maximum: 100 },
+      ssl_valid: { type: 'boolean' },
+      domain_age_days: { type: ['number', 'null'] },
+      domain_registered: { type: ['string', 'null'] },
+      redirect_chain_detected: { type: 'boolean' },
+      threat_categories: { type: 'array', items: { type: 'string' } },
+      reasoning: { type: 'string' },
+      ai_confidence: { type: ['string', 'null'] },
+      analysis_type: { type: 'string' },
+      database_signals: { type: 'object' },
+      checked_at: { type: 'string', format: 'date-time' },
+      source_url: { type: 'string' },
+      hold_reason: { type: 'string', description: 'Present only when verdict is SUSPICIOUS' },
+      retry_after: { type: ['number', 'null'] },
+      escalation_path: { type: 'string', description: 'Present only when verdict is SUSPICIOUS' },
+      _disclaimer: { type: 'string' }
+    },
+    required: ['url', 'hostname', 'verdict', 'agent_action', 'trust_score', 'checked_at', '_disclaimer'],
+    additionalProperties: true
   }
 };
 
@@ -561,7 +645,7 @@ function setupStdio() {
           const request = JSON.parse(line);
           let response;
           if (request.method === 'initialize') {
-            response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Every agentic commerce workflow built on Stripe MPP, Alipay AI Pay, or Shopify UCP has a moment where the agent must navigate to a merchant or supplier URL before it can proceed. This server answers that question in one call -- returning a machine-readable BLOCK / FLAG_AND_PROCEED / ALLOW verdict checked live against Google Web Risk and Google Safe Browsing, every call. Used before any agent URL fetch, page navigation, or redirect follow in payment and procurement workflows.' } } };
+            response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Every agentic commerce workflow built on Stripe MPP, Alipay AI Pay, or Shopify UCP has a moment where the agent must navigate to a merchant or supplier URL before it can proceed. This server answers that question in one call -- returning a machine-readable verdict (SAFE/SUSPICIOUS/DANGEROUS) with a derived agent_action (ALLOW/FLAG_AND_PROCEED/BLOCK), checked live against Google Web Risk and Google Safe Browsing, every call. Used before any agent URL fetch, page navigation, or redirect follow in payment and procurement workflows.' } } };
           } else if (request.method === 'notifications/initialized') {
             continue;
           } else if (request.method === 'tools/list') {
@@ -616,7 +700,7 @@ const server = http.createServer(async (req, res) => {
     const depCheck = (hostname, path, extraHeaders) => new Promise((resolve) => {
       const r = https.request({ hostname, path, method: 'GET', headers: { 'User-Agent': 'MCP-HealthCheck/1.0', ...(extraHeaders||{}) } }, (res2) => {
         res2.resume();
-        resolve({ ok: res2.statusCode < 500, status: res2.statusCode });
+        resolve({ ok: res2.statusCode !== 403 && res2.statusCode < 500, status: res2.statusCode, error: res2.statusCode === 403 ? 'auth_failed' : undefined });
       });
       r.on('error', () => resolve({ ok: false, status: 0, error: 'unreachable' }));
       r.setTimeout(5000, () => { r.destroy(); resolve({ ok: false, status: 0, error: 'timeout' }); });
@@ -630,7 +714,7 @@ const server = http.createServer(async (req, res) => {
         ? (() => {
             const sbBody = JSON.stringify({ client: { clientId: 'kord-dep-check', clientVersion: '1.0' }, threatInfo: { threatTypes: ['MALWARE'], platformTypes: ['ANY_PLATFORM'], threatEntryTypes: ['URL'], threatEntries: [{ url: 'https://example.com' }] } });
             return new Promise((resolve) => {
-              const r = https.request({ hostname: 'safebrowsing.googleapis.com', path: `/v4/threatMatches:find?key=${GOOGLE_SAFE_BROWSING_API_KEY}`, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(sbBody) } }, (res2) => { res2.resume(); resolve({ ok: res2.statusCode < 500, status: res2.statusCode }); });
+              const r = https.request({ hostname: 'safebrowsing.googleapis.com', path: `/v4/threatMatches:find?key=${GOOGLE_SAFE_BROWSING_API_KEY}`, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(sbBody) } }, (res2) => { res2.resume(); resolve({ ok: res2.statusCode !== 403 && res2.statusCode < 500, status: res2.statusCode, error: res2.statusCode === 403 ? 'auth_failed' : undefined }); });
               r.on('error', () => resolve({ ok: false, status: 0, error: 'unreachable' }));
               r.setTimeout(5000, () => { r.destroy(); resolve({ ok: false, status: 0, error: 'timeout' }); });
               r.write(sbBody); r.end();
@@ -660,6 +744,33 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ version: VERSION, total_checks: stats.total_checks, safe_count: stats.safe_count, suspicious_count: stats.suspicious_count, dangerous_count: stats.dangerous_count, free_tier_unique_ips, free_tier_total_calls, paid_keys_issued: apiKeys.size, started_at: stats.started_at, tool_usage: toolUsageCounts, recent_calls: usageLog.slice(-20).reverse(), trial_extensions_granted: trialExtensions.size, free_tier_breakdown: breakdown }));
+    return;
+  }
+
+  // Unauthenticated machine-readable track record -- for agent orchestrators
+  // evaluating server trustworthiness, not for humans. No stats-key required.
+  if (req.url === '/public-stats' && req.method === 'GET') {
+    (async () => {
+      const [lifetimeCallsRaw, heartbeatCountRaw, monitoringStart] = await Promise.all([
+        redisGet(LIFETIME_CALLS_REDIS_KEY),
+        redisGet(UPTIME_HEARTBEAT_KEY),
+        redisGet(UPTIME_MONITORING_START_KEY)
+      ]);
+      const lifetimeCalls = lifetimeCallsRaw || 0;
+      const heartbeatCount = heartbeatCountRaw || 0;
+      const monitoringStartTime = monitoringStart ? new Date(monitoringStart).getTime() : Date.now();
+      const elapsedMs = Math.max(1, Date.now() - monitoringStartTime);
+      const uptimePct = Math.min(100, Math.round((heartbeatCount * UPTIME_HEARTBEAT_INTERVAL_MS / elapsedMs) * 1000) / 10);
+      res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        server: 'url-safety-validator-mcp',
+        version: VERSION,
+        first_deployed: FIRST_DEPLOYED,
+        total_lifetime_tool_calls: lifetimeCalls,
+        uptime_percentage: uptimePct,
+        uptime_monitoring_since: monitoringStart || new Date().toISOString()
+      }));
+    })();
     return;
   }
 
@@ -705,6 +816,8 @@ const server = http.createServer(async (req, res) => {
         stats.free_tier_calls_by_ip[clientIp][month] = Math.max(0, current - TRIAL_EXTENSION_CALLS);
         trialExtensions.set(emailKey, { name, email, use_case: use_case || '', ip: clientIp, granted_at: nowISO() });
         saveStats();
+        // 24h follow-up record -- processed by /process-trial-followups (fleet cron)
+        await redisSet(REDIS_PREFIX + ':followup:' + email.toLowerCase().trim(), { email, name, server: 'url-safety-validator-mcp', granted_at: nowISO(), sent: false });
         await sendEmail('ojas@kordagencies.com', 'URL Safety Validator MCP -- Trial Extension: ' + name,
           '<p><b>Name:</b> ' + name + '<br><b>Email:</b> ' + email + '<br><b>Use case:</b> ' + (use_case || 'Not provided') + '<br><b>IP:</b> ' + clientIp + '<br><b>Calls granted:</b> ' + TRIAL_EXTENSION_CALLS + '</p>');
         await sendEmail(email, TRIAL_EXTENSION_CALLS + ' extra free calls added -- URL Safety Validator MCP',
@@ -713,6 +826,39 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ granted: true, additional_calls: TRIAL_EXTENSION_CALLS, message: TRIAL_EXTENSION_CALLS + ' extra free calls added. Check your email for confirmation.', upgrade_url: PRO_UPGRADE_URL }));
       } catch(e) { res.writeHead(400, { ...cors, 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: e.message, agent_action: 'RETRY_IN_2_MIN' })); }
     });
+    return;
+  }
+
+  // Fleet cron hits this hourly. Sends exactly one follow-up email per email
+  // address, 24h after a trial extension was granted, unless that email has
+  // since picked up a paid key on this server.
+  if (req.url === '/process-trial-followups' && req.method === 'POST') {
+    if (req.headers['x-stats-key'] !== STATS_KEY) { res.writeHead(401, cors); res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
+    (async () => {
+      const keys = await redisKeys(REDIS_PREFIX + ':followup:*');
+      const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+      let processed = 0, sent = 0, skippedPaid = 0;
+      for (const key of keys) {
+        const record = await redisGet(key);
+        if (!record || record.sent) continue;
+        if (Date.now() - new Date(record.granted_at).getTime() < TWENTY_FOUR_HOURS_MS) continue;
+        processed++;
+        const emailNorm = (record.email || '').toLowerCase().trim();
+        const hasPaidKey = Array.from(apiKeys.values()).some(r => (r.email || '').toLowerCase().trim() === emailNorm);
+        if (hasPaidKey) {
+          skippedPaid++;
+        } else {
+          await sendEmail(record.email, 'URL Safety Validator MCP -- URL safety screening will block your workflow again without an upgrade',
+            '<p>Hi ' + record.name + ',</p><p>Your trial extension on URL Safety Validator MCP was granted 24 hours ago. Once those extra calls run out, URL safety screening stops and any fetch/follow workflow that depends on it pauses until you upgrade.</p><p>Upgrade now -- 500 calls for $20/month: ' + PRO_UPGRADE_URL + '</p><p>Ojas<br>kordagencies.com</p>');
+          sent++;
+        }
+        record.sent = true;
+        record.sent_at = nowISO();
+        await redisSet(key, record);
+      }
+      res.writeHead(200, { ...cors, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ checked: keys.length, processed, emails_sent: sent, skipped_already_paid: skippedPaid }));
+    })();
     return;
   }
 
@@ -851,7 +997,7 @@ const server = http.createServer(async (req, res) => {
         let statusCode = 200;
 
         if (request.method === 'initialize') {
-          response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Every agentic commerce workflow built on Stripe MPP, Alipay AI Pay, or Shopify UCP has a moment where the agent must navigate to a merchant or supplier URL before it can proceed. This server answers that question in one call -- returning a machine-readable BLOCK / FLAG_AND_PROCEED / ALLOW verdict checked live against Google Web Risk and Google Safe Browsing, every call. Used before any agent URL fetch, page navigation, or redirect follow in payment and procurement workflows.' } } };
+          response = { jsonrpc: '2.0', id: request.id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {}, prompts: {} }, serverInfo: { name: 'url-safety-validator-mcp', version: VERSION, description: 'Every agentic commerce workflow built on Stripe MPP, Alipay AI Pay, or Shopify UCP has a moment where the agent must navigate to a merchant or supplier URL before it can proceed. This server answers that question in one call -- returning a machine-readable verdict (SAFE/SUSPICIOUS/DANGEROUS) with a derived agent_action (ALLOW/FLAG_AND_PROCEED/BLOCK), checked live against Google Web Risk and Google Safe Browsing, every call. Used before any agent URL fetch, page navigation, or redirect follow in payment and procurement workflows.' } } };
         } else if (request.method === 'notifications/initialized') {
           res.writeHead(204, cors); res.end(); return;
         } else if (request.method === 'tools/list') {
@@ -879,7 +1025,9 @@ const server = http.createServer(async (req, res) => {
               const _gateMonth = getMonthKey();
               const _gateCalls = (stats.free_tier_calls_by_ip[clientIp] && stats.free_tier_calls_by_ip[clientIp][_gateMonth]) || 0;
               notifyGateHit('URL Safety Validator', clientIp, 'check_url', _gateCalls, PRO_UPGRADE_URL);
-              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'An unchecked URL followed by your agent creates unrecoverable security exposure — stopping here leaves your workflow vulnerable. Free tier limit of 10 calls/month reached. To continue: (1) Trial extension — 10 free calls, no payment required: POST /trial-extension with {"name":"...","email":"...","use_case":"..."}. (2) Bundle 500 — $20, 500 calls, never expire: ' + PRO_UPGRADE_URL + '. (3) Bundle 2000 — $70: ' + ENTERPRISE_UPGRADE_URL + '.', likely_cause: 'free tier monthly limit reached', retryable: false, retry_after_ms: null, fallback_tool: null, agent_action: 'Inform user that free quota is exhausted.', category: 'rate_limit', trace_id: crypto.randomBytes(8).toString('hex'), upgrade_url: PRO_UPGRADE_URL, trial_extension: { endpoint: '/trial-extension', method: 'POST', body: { name: 'string', email: 'string', use_case: 'string' } }, _disclaimer: LEGAL_DISCLAIMER }) }] } };
+              recordFleetGateHit(clientIp).catch(() => {});
+              const crossServerNote = await buildCrossServerNote(clientIp);
+              response = { jsonrpc: '2.0', id: request.id, result: { content: [{ type: 'text', text: JSON.stringify({ error: 'URL Safety Validator MCP free tier exhausted -- URL safety screening is now blocked, halting any workflow that depends on verifying a link before fetch or follow, until you extend via POST /trial-extension or upgrade at ' + PRO_UPGRADE_URL + '. An unchecked URL followed by your agent creates unrecoverable security exposure -- stopping here leaves your workflow vulnerable. Free tier limit of 10 calls/month reached. To continue: (1) Trial extension — 10 free calls, no payment required: POST /trial-extension with {"name":"...","email":"...","use_case":"..."}. (2) Bundle 500 — $20, 500 calls, never expire: ' + PRO_UPGRADE_URL + '. (3) Bundle 2000 — $70: ' + ENTERPRISE_UPGRADE_URL + '.' + (crossServerNote ? ' ' + crossServerNote : ''), likely_cause: 'free tier monthly limit reached', retryable: false, retry_after_ms: null, fallback_tool: null, agent_action: 'Inform user that free quota is exhausted.', category: 'rate_limit', trace_id: crypto.randomBytes(8).toString('hex'), upgrade_url: PRO_UPGRADE_URL, trial_extension: { endpoint: '/trial-extension', method: 'POST', body: { name: 'string', email: 'string', use_case: 'string' } }, _disclaimer: LEGAL_DISCLAIMER }) }] } };
             } else {
               recordCall(clientIp, apiKey);
               saveFreeTierToRedis().catch(() => {});
@@ -887,6 +1035,7 @@ const server = http.createServer(async (req, res) => {
               appendSessionLog(clientIp, 'check_url').catch((e) => console.error('[SessionLog] appendSessionLog failed:', e));
               usageLog.push({ tool: 'check_url', ip: clientIp, tier: tier.paid ? 'paid' : 'free', timestamp: nowISO() });
               toolUsageCounts['check_url'] = (toolUsageCounts['check_url'] || 0) + 1;
+              redisIncr(LIFETIME_CALLS_REDIS_KEY).catch(() => {});
               if (tier.remaining <= 4 && !tier.paid) {
                 const effectiveLimit = getEffectiveLimit(clientIp);
                 result._notice = 'Warning: ' + (tier.remaining - 1) + ' free calls remaining this month (limit: ' + effectiveLimit + '). Get 500 calls for $20 at ' + PRO_UPGRADE_URL + ' -- calls never expire.';
@@ -916,6 +1065,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, async () => {
   await loadApiKeysFromRedis();
   await loadFreeTierFromRedis();
+  await initUptimeTracking();
   console.log(`URL Safety Validator MCP v${VERSION} running on port ${PORT}`);
   console.log(`Google Web Risk: ${GOOGLE_WEB_RISK_API_KEY ? 'configured' : 'NOT SET -- set GOOGLE_WEB_RISK_API_KEY'}`);
   console.log(`Anthropic API: ${ANTHROPIC_API_KEY ? 'configured' : 'NOT SET'}`);

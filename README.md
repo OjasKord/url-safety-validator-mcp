@@ -6,7 +6,7 @@
 
 **Stop your agent from fetching a dangerous URL before it's too late.**
 
-Agents that process emails, scrape pages, or consume API responses encounter URLs from untrusted sources constantly. This server gives your agent a single call to gate every URL before it proceeds — returning a SAFE/SUSPICIOUS/DANGEROUS verdict backed by Google Web Risk, URLhaus, PhishTank, and AI analysis.
+Agents that process emails, scrape pages, or consume API responses encounter URLs from untrusted sources constantly. This server gives your agent a single call to gate every URL before it proceeds — returning a SAFE/SUSPICIOUS/DANGEROUS verdict backed by Google Web Risk, Google Safe Browsing, and AI analysis.
 
 ---
 
@@ -20,7 +20,7 @@ One tool: `check_url`. One call returns:
 - **SSL status:** valid or not
 - **Domain age:** registration date and age in days
 - **Redirect chain flag:** detected from URL parameters
-- **Database signals:** raw results from Google Web Risk, URLhaus, PhishTank
+- **Database signals:** raw results from Google Web Risk and Google Safe Browsing
 - **AI reasoning:** 2–3 sentence plain-English explanation
 - **AI confidence:** HIGH / MEDIUM / LOW
 
@@ -46,8 +46,7 @@ If the verdict is DANGEROUS — halt. If SUSPICIOUS — flag for review. If SAFE
 | Source | Type | Coverage |
 |---|---|---|
 | Google Web Risk | Commercial API | Malware, phishing, unwanted software |
-| URLhaus (abuse.ch) | Free | Active malware distribution URLs |
-| PhishTank | Free | Community-verified phishing URLs |
+| Google Safe Browsing | Free | Malware, phishing, unwanted software (fallback when Web Risk key absent) |
 | RDAP | Free | Domain registration date |
 | Anthropic Claude | AI | Trust scoring and reasoning synthesis |
 
@@ -152,7 +151,7 @@ Same as LangChain above — langchain-mcp-adapters works with LangGraph natively
   "domain_age_days": 12,
   "redirect_chain_detected": false,
   "threat_categories": ["phishing", "newly_registered"],
-  "reasoning": "Domain registered 12 days ago and confirmed in PhishTank as an active phishing site impersonating a financial institution. Google Web Risk flags this as SOCIAL_ENGINEERING.",
+  "reasoning": "Domain registered 12 days ago and impersonates a financial institution's login page. Google Web Risk flags this as SOCIAL_ENGINEERING.",
   "ai_confidence": "HIGH",
   "analysis_type": "AI-powered -- NOT a simple database lookup"
 }
