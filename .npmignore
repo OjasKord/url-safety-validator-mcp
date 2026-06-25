@@ -4,3 +4,9 @@ fix.js
 patch.js
 *_patch.js
 *_fix.js
+token.tmp
+*.tmp
+.claude/
+CLAUDE.md
+SYSTEM_PROMPT.md
+MCP-Build-Playbook*

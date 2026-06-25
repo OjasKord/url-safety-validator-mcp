@@ -2,6 +2,9 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.27] — 2026-06-25
+- fix: .npmignore was missing a .claude/ exclusion -- .claude/settings.local.json shipped in the v1.2.26 npm tarball. Added token.tmp, *.tmp, .claude/, CLAUDE.md, SYSTEM_PROMPT.md, MCP-Build-Playbook* to .npmignore.
+
 ## [1.2.26] — 2026-06-25
 - feat: calls_remaining field added to check_url responses -- "unlimited" for paid keys, numeric free-tier headroom otherwise
 - feat: verdict_ttl field added (3600s/1hr -- threat landscape changes fast)
