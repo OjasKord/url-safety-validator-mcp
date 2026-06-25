@@ -2,6 +2,12 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.26] — 2026-06-25
+- feat: calls_remaining field added to check_url responses -- "unlimited" for paid keys, numeric free-tier headroom otherwise
+- feat: verdict_ttl field added (3600s/1hr -- threat landscape changes fast)
+- feat: data_source_status field added (full/degraded/partial) -- "degraded" when Google Web Risk (critical source) is unavailable, "partial" when only AI trust scoring is unavailable, "full" when both respond
+- Task 1 (purpose verb + required fields) audited -- already correct on check_url from a prior pass, no changes needed
+
 ## [1.2.25] — 2026-06-24
 - feat: unauthenticated /public-stats endpoint -- first_deployed, lifetime tool calls, uptime %, version, for agent orchestrators evaluating server trustworthiness
 - feat: /process-trial-followups endpoint + 24h follow-up record on trial-extension grant

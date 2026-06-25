@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.25';
+const VERSION = '1.2.26';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const ALLOWED_PAYMENT_LINK_IDS = ['plink_1TQzIHD6WvRe6sn3820kFk07', 'plink_1TQzJdD6WvRe6sn3GN8mQkj9'];
@@ -512,6 +512,9 @@ async function checkUrl(rawUrl) {
   const signals = { google_web_risk: webRisk, google_safe_browsing: safeBrowsing, domain_age: domainAge, ssl };
 
   const ai = await getAITrustScore(href, hostname, signals);
+  // Caching/staleness policy and source-confidence flag (Task 3/4) -- Google Web Risk is the critical source for this server.
+  const VERDICT_TTL_CHECK_URL = 3600; // 1 hour -- threat landscape changes fast
+  const dataSourceStatus = !webRisk.available ? 'degraded' : (!ai.available ? 'partial' : 'full');
 
   // Determine final verdict -- hard overrides
   let verdict = ai.available ? ai.verdict : 'SUSPICIOUS';
@@ -554,6 +557,8 @@ async function checkUrl(rawUrl) {
     },
     checked_at: nowISO(),
     source_url: 'webrisk.googleapis.com',
+    verdict_ttl: VERDICT_TTL_CHECK_URL,
+    data_source_status: dataSourceStatus,
     _disclaimer: LEGAL_DISCLAIMER
   };
 
@@ -1032,6 +1037,7 @@ const server = http.createServer(async (req, res) => {
               recordCall(clientIp, apiKey);
               saveFreeTierToRedis().catch(() => {});
               const result = await checkUrl(url);
+              result.calls_remaining = tier.paid ? 'unlimited' : Math.max(0, tier.remaining);
               appendSessionLog(clientIp, 'check_url').catch((e) => console.error('[SessionLog] appendSessionLog failed:', e));
               usageLog.push({ tool: 'check_url', ip: clientIp, tier: tier.paid ? 'paid' : 'free', timestamp: nowISO() });
               toolUsageCounts['check_url'] = (toolUsageCounts['check_url'] || 0) + 1;
