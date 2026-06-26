@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.27';
+const VERSION = '1.2.28';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const ALLOWED_PAYMENT_LINK_IDS = ['plink_1TQzIHD6WvRe6sn3820kFk07', 'plink_1TQzJdD6WvRe6sn3GN8mQkj9'];
@@ -821,6 +821,7 @@ const server = http.createServer(async (req, res) => {
         stats.free_tier_calls_by_ip[clientIp][month] = Math.max(0, current - TRIAL_EXTENSION_CALLS);
         trialExtensions.set(emailKey, { name, email, use_case: use_case || '', ip: clientIp, granted_at: nowISO() });
         saveStats();
+        await redisSet(REDIS_PREFIX + ':trial:' + email.toLowerCase().trim(), { name, email, use_case: use_case || '', ip: clientIp, timestamp: nowISO(), server: 'url-safety-validator-mcp' });
         // 24h follow-up record -- processed by /process-trial-followups (fleet cron)
         await redisSet(REDIS_PREFIX + ':followup:' + email.toLowerCase().trim(), { email, name, server: 'url-safety-validator-mcp', granted_at: nowISO(), sent: false });
         await sendEmail('ojas@kordagencies.com', 'URL Safety Validator MCP -- Trial Extension: ' + name,
