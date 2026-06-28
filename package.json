@@ -1,7 +1,7 @@
 {
   "name": "url-safety-validator-mcp",
   "mcpName": "io.github.OjasKord/url-safety-validator-mcp",
-  "version": "1.2.28",
+  "version": "1.2.29",
   "description": "URL safety checker for AI agents. Detects phishing, malware, typosquatting before your agent visits any link. BLOCK/ALLOW verdict in one call.",
   "main": "src/server.js",
   "scripts": {
