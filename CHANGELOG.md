@@ -2,6 +2,14 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.30] — 2026-06-28
+- fix: gate email dedup — notifyGateHit now writes url:gate_email:{ip} to Redis with 1-hour TTL; retries within the hour suppressed
+- fix: 402 gate response agent_action changed to HALT_WORKFLOW; added retryable: false, retry_after_ms: null
+- fix: trial_extension structured field already present; agent_action now actionable for agents
+
+## [1.2.29] — 2026-06-28
+- feat: owner key bypass (OWNER_KEY env var) — fleet owner bypasses free tier and paid-only gates
+
 ## [1.2.28] — 2026-06-26
 - fix: trial extension requests now written to Redis (url:trial:{email}) on grant -- permanent audit trail that survives redeploys; previously in-memory only
 
