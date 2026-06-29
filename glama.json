@@ -1,7 +1,19 @@
 {
-  "name": "URL Safety Validator",
-  "description": "AI-powered URL safety validator. Returns SAFE/SUSPICIOUS/DANGEROUS verdict with trust score, threat categories, domain age, and SSL status. Cross-checks Google Web Risk and Google Safe Browsing.",
+  "$schema": "https://glama.ai/mcp/servers/schema.json",
+  "name": "URL Safety Validator MCP",
+  "description": "AI-powered URL safety validator. Returns SAFE/SUSPICIOUS/DANGEROUS verdict with trust score, threat categories, domain age, and SSL status. Cross-checks Google Web Risk and Google Safe Browsing. Call before any agent navigates or shares a URL.",
   "license": "UNLICENSED",
-  "homepage": "https://kordagencies.com",
-  "repository": "https://github.com/OjasKord/url-safety-validator-mcp"
+  "categories": [
+    "security",
+    "legal-and-compliance"
+  ],
+  "remote": {
+    "transport": "sse",
+    "url": "https://url-safety-validator-mcp-production.up.railway.app/sse"
+  },
+  "links": {
+    "homepage": "https://kordagencies.com",
+    "npm": "https://www.npmjs.com/package/url-safety-validator-mcp",
+    "repository": "https://github.com/OjasKord/url-safety-validator-mcp"
+  }
 }
