@@ -2,10 +2,11 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
-## [1.2.32] — 2026-07-16
-- fix: Redis env var mismatch — code only read UPSTASH_REDIS_REST_URL/_TOKEN but Railway has this service configured as REDIS_URL/REDIS_TOKEN, silently killing Redis (dedup, uptime heartbeat, public-stats, fleet cross-server detection all affected). Now falls back to REDIS_URL/REDIS_TOKEN if the UPSTASH_-named vars aren't set.
+## [1.2.33] — 2026-07-16
+- fix: Redis env var mismatch — code only read UPSTASH_REDIS_REST_URL/_TOKEN but Railway has this service configured as REDIS_URL/REDIS_TOKEN, silently killing Redis (dedup, uptime heartbeat, public-stats, fleet cross-server detection all affected). Now falls back to REDIS_URL/REDIS_TOKEN if the UPSTASH_-named vars aren't set. Confirmed both name pairs point at the same shared Upstash instance as the rest of the fleet — no cross-instance risk. Var names intentionally left as-is on Railway (REDIS_URL/REDIS_TOKEN); do not rename, the code now handles both.
 - fix: redisSet() was reading process.env.UPSTASH_REDIS_REST_URL/_TOKEN directly instead of the module consts, bypassing the fallback above — now uses the consts like every other Redis helper.
 - feat: gate-hit email circuit breaker — hard cap of 3 gate-hit emails/hour, server-wide, independent of Redis. Backstop for the incident where broken Redis dedup let 111 gate hits fire 111 separate emails and exhausted the fleet's shared Resend quota.
+- chore: this fix was first committed as 1.2.32, but npm already had a differently-coded 1.2.32 published from before this incident (package.json was one version ahead of the live/constant pair — a known benign pattern until it collided with an actual same-day fix). Renumbered to 1.2.33 to avoid two different codebases sharing one version number.
 
 ## [1.2.31] — 2026-06-29
 - feat: add GET /.well-known/glama.json ownership endpoint for Glama registry verification
