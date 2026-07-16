@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.31';
+const VERSION = '1.2.32';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const ALLOWED_PAYMENT_LINK_IDS = ['plink_1TQzIHD6WvRe6sn3820kFk07', 'plink_1TQzJdD6WvRe6sn3GN8mQkj9'];
@@ -49,8 +49,11 @@ function checkPerMinuteLimit(ip, toolName, limit) {
 
 const REDIS_PREFIX = 'url';
 const FREE_TIER_REDIS_KEY = 'url:free_tier_usage';
-const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
-const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+// Railway has this service's vars set as REDIS_URL/REDIS_TOKEN, not the
+// UPSTASH_-prefixed names the rest of the fleet uses -- accept either so a
+// dashboard naming mismatch can't silently kill Redis again (2026-07-16 incident).
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.REDIS_URL;
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.REDIS_TOKEN;
 const FIRST_DEPLOYED = '2026-04-22T06:38:09Z';
 const LIFETIME_CALLS_REDIS_KEY = 'url:lifetime_calls';
 const UPTIME_HEARTBEAT_KEY = 'url:uptime:heartbeat_count';
@@ -97,6 +100,22 @@ function truncateIp(ip) {
   return parts.length === 4 ? parts.slice(0, 3).join('.') + '.0' : ip;
 }
 
+// Redis-independent backstop -- 2026-07-16 incident: Redis was silently down
+// (env var mismatch), the dedup check below fell through on every call, and
+// one abusive client turned 111 gate hits into 111 separate emails that blew
+// the fleet's shared Resend quota. This cap fires even if Redis is fully down.
+const GATE_EMAIL_HOURLY_CAP = 3;
+let gateEmailHourBucket = null;
+let gateEmailHourCount = 0;
+
+function gateEmailCircuitBreakerAllows() {
+  const hourKey = new Date().toISOString().slice(0, 13); // YYYY-MM-DDTHH
+  if (gateEmailHourBucket !== hourKey) { gateEmailHourBucket = hourKey; gateEmailHourCount = 0; }
+  if (gateEmailHourCount >= GATE_EMAIL_HOURLY_CAP) return false;
+  gateEmailHourCount++;
+  return true;
+}
+
 async function notifyGateHit(serverName, ip, toolName, totalCalls, stripeUrl) {
   const ip24 = truncateIp(ip);
   const dedupKey = REDIS_PREFIX + ':gate_email:' + ip24;
@@ -105,7 +124,8 @@ async function notifyGateHit(serverName, ip, toolName, totalCalls, stripeUrl) {
     if (recent) { console.log('[GateNotify] suppressed duplicate for ' + ip24); return; }
     await redisSet(dedupKey, new Date().toISOString());
     await redisExpire(dedupKey, 3600);
-  } catch(e) { /* Redis unavailable — fall through and send */ }
+  } catch(e) { /* Redis unavailable — fall through to circuit breaker below */ }
+  if (!gateEmailCircuitBreakerAllows()) { console.log('[GateNotify] circuit breaker: hourly cap (' + GATE_EMAIL_HOURLY_CAP + ') reached, suppressing email for ' + ip24); return; }
   const html = '<p>Server: ' + serverName + '</p><p>IP: ' + ip24 + '</p><p>Tool: ' + (toolName || 'unknown') + '</p><p>Calls this month: ' + totalCalls + '</p><p>Time: ' + new Date().toISOString() + '</p><p>Upgrade: ' + stripeUrl + '</p>';
   sendEmail('ojas@kordagencies.com', '[Gate Hit] ' + serverName + ' — ' + ip24 + ' hit free tier limit', html)
     .catch(e => console.error('[GateNotify] failed:', e.message));
@@ -165,9 +185,9 @@ async function redisGet(key) {
 
 async function redisSet(key, value) {
   try {
-    const res = await fetch(`${process.env.UPSTASH_REDIS_REST_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(JSON.stringify(value))}`, {
+    const res = await fetch(`${UPSTASH_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(JSON.stringify(value))}`, {
       method: 'GET',
-      headers: { Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN}` }
+      headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` }
     });
     const data = await res.json();
     if (data.error) console.error('[Redis] redisSet error:', data.error, 'key:', key);
