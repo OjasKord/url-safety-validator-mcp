@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { Readable } = require('stream');
 
-const VERSION = '1.2.34';
+const VERSION = '1.2.35';
 const PRO_UPGRADE_URL = 'https://buy.stripe.com/5kQeVc9Ah4n3c8c0h2ebu0t';
 const ENTERPRISE_UPGRADE_URL = 'https://buy.stripe.com/4gMdR88wddXDfko0h2ebu0u';
 const ALLOWED_PAYMENT_LINK_IDS = ['plink_1TQzIHD6WvRe6sn3820kFk07', 'plink_1TQzJdD6WvRe6sn3GN8mQkj9'];
@@ -83,7 +83,26 @@ loadStats();
 function nowISO() { return new Date().toISOString(); }
 
 // ─── Email ────────────────────────────────────────────────────────────────────
+// Redis-independent circuit breaker for the email paths that remain after
+// raw gate-hit emails (and the gate-hit-specific 3/hr breaker that guarded
+// them, Lesson 209) were removed 2026-07-27 -- trial-extension request and
+// payment events only. Caps total sends server-wide so a flood of fake
+// trial-extension requests can't exhaust the fleet's shared Resend quota
+// even if Redis-backed dedup elsewhere is unavailable. Same pattern and
+// limit as the other 8 servers.
+const EMAIL_CIRCUIT_BREAKER_LIMIT = 20;
+let emailBreakerCount = 0;
+let emailBreakerWindowStart = Date.now();
+function emailCircuitBreakerAllow() {
+  const now = Date.now();
+  if (now - emailBreakerWindowStart > 3600000) { emailBreakerWindowStart = now; emailBreakerCount = 0; }
+  if (emailBreakerCount >= EMAIL_CIRCUIT_BREAKER_LIMIT) return false;
+  emailBreakerCount++;
+  return true;
+}
+
 async function sendEmail(to, subject, html) {
+  if (!emailCircuitBreakerAllow()) { console.log('[EmailBreaker] suppressed email to ' + to + ' — hourly cap reached'); return { suppressed: true }; }
   return new Promise((resolve) => {
     const body = JSON.stringify({ from: 'URL Safety Validator <ojas@kordagencies.com>', to: [to], subject, html });
     const req = https.request({

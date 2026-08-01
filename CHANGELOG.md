@@ -2,6 +2,9 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.35] — 2026-08-01
+- fix: v1.2.34 correctly removed the gate-hit-specific 3/hr breaker along with notifyGateHit(), but that left the remaining email paths (trial-extension notify/confirm/follow-up, paid API key delivery) with ZERO Redis-independent throttle — the standing decision to not duplicate a breaker was reconsidered on audit. Added the same 20/hr in-process circuit breaker used on the other 8 servers, embedded directly in sendEmail() so it covers every remaining call site in one place.
+
 ## [1.2.34] — 2026-07-31
 - fix: gate hits (free-tier exhausted) now increment usageLog/toolUsageCounts/session log before the early return, so /daily-report and /stats see gate volume as events instead of being blind to them (new `gate_hits_24h` field)
 - fix: usageLog and toolUsageCounts moved to Redis-backed persistence (load-on-startup + fire-and-forget write), matching the free_tier_calls_by_ip pattern — previously reset on every redeploy
