@@ -2,6 +2,11 @@
 
 All notable changes to URL Safety Validator MCP are documented here.
 
+## [1.2.34] — 2026-07-31
+- fix: gate hits (free-tier exhausted) now increment usageLog/toolUsageCounts/session log before the early return, so /daily-report and /stats see gate volume as events instead of being blind to them (new `gate_hits_24h` field)
+- fix: usageLog and toolUsageCounts moved to Redis-backed persistence (load-on-startup + fire-and-forget write), matching the free_tier_calls_by_ip pattern — previously reset on every redeploy
+- removed: notifyGateHit() and its dedicated GATE_EMAIL_HOURLY_CAP breaker — raw free-tier gate hits no longer send an email at all (still increment counters, still return 402). Fleet-wide policy: email now fires only on a trial-extension request or a Stripe payment event. This server's existing 3/hr breaker (v1.2.32, Lesson 209) was gate-hit-specific and is removed as dead code along with its only caller — not duplicated elsewhere, per standing decision not to add a second breaker to this server's trial-extension/payment paths
+
 ## [1.2.33] — 2026-07-16
 - fix: Redis env var mismatch — code only read UPSTASH_REDIS_REST_URL/_TOKEN but Railway has this service configured as REDIS_URL/REDIS_TOKEN, silently killing Redis (dedup, uptime heartbeat, public-stats, fleet cross-server detection all affected). Now falls back to REDIS_URL/REDIS_TOKEN if the UPSTASH_-named vars aren't set. Confirmed both name pairs point at the same shared Upstash instance as the rest of the fleet — no cross-instance risk. Var names intentionally left as-is on Railway (REDIS_URL/REDIS_TOKEN); do not rename, the code now handles both.
 - fix: redisSet() was reading process.env.UPSTASH_REDIS_REST_URL/_TOKEN directly instead of the module consts, bypassing the fallback above — now uses the consts like every other Redis helper.
